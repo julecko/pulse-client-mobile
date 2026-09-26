@@ -1,0 +1,50 @@
+# Gradle / Kotlin
+.gradle/
+.kotlin/
+build/
+!gradle/wrapper/gradle-wrapper.jar
+
+# Local machine config (SDK path etc.)
+local.properties
+
+# Android Studio / IntelliJ — per-developer, regenerated on import
+.idea/
+*.iml
+*.ipr
+*.iws
+captures/
+.externalNativeBuild/
+.cxx/
+
+# Build outputs
+*.apk
+*.aab
+*.ap_
+*.dex
+*.class
+output-metadata.json
+
+# Signing material and secrets — never commit these
+*.jks
+*.keystore
+keystore.properties
+*.pem
+*.p12
+.env
+.env.*
+!.env.example
+google-services.json
+
+# Logs / crash dumps
+*.log
+hs_err_pid*
+
+# Claude Code local state (project settings in .claude/settings.json are shareable)
+.claude/scheduled_tasks.lock
+.claude/settings.local.json
+.claude/worktrees/
+
+# OS junk
+.DS_Store
+Thumbs.db
+desktop.ini

@@ -1,0 +1,10 @@
+<resources xmlns:tools="http://schemas.android.com/tools">
+    <!-- Base application theme. Compose owns all UI; this just keeps the
+         window background dark before first composition to avoid a white flash. -->
+    <style name="Theme.PulseClientMobile" parent="Theme.MaterialComponents.DayNight.NoActionBar">
+        <item name="android:windowBackground">@color/pulse_bg</item>
+        <item name="android:statusBarColor">@color/pulse_bg</item>
+        <item name="android:navigationBarColor">@color/pulse_bg</item>
+        <item name="android:windowLightStatusBar" tools:targetApi="m">false</item>
+    </style>
+</resources>
