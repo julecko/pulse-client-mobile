@@ -42,6 +42,8 @@ data class AlertsUiState(
     val tab: AlertsTab = AlertsTab.ALERTS,
 
     val isLoading: Boolean = true,
+    /** A pull-to-refresh is in flight; drives the pull indicator, which only hides once this goes back to false. */
+    val isRefreshing: Boolean = false,
     val alerts: List<AlertRecord> = emptyList(),
     val filter: AlertFilter = AlertFilter.ALL,
     val expandedId: Long? = null,
@@ -101,7 +103,15 @@ class AlertsViewModel(private val api: PulseApiClient) : ViewModel() {
     fun toggleExpand(id: Long) = _uiState.update { it.copy(expandedId = if (it.expandedId == id) null else id) }
 
     fun refresh() {
-        viewModelScope.launch { loadAlerts(showSpinner = false) }
+        if (_uiState.value.isRefreshing) return
+        viewModelScope.launch {
+            _uiState.update { it.copy(isRefreshing = true) }
+            try {
+                loadAlerts(showSpinner = false)
+            } finally {
+                _uiState.update { it.copy(isRefreshing = false) }
+            }
+        }
     }
 
     private suspend fun loadAlerts(showSpinner: Boolean) {
