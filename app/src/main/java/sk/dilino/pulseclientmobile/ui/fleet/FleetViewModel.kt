@@ -13,8 +13,10 @@ import kotlinx.coroutines.launch
 import sk.dilino.pulseclientmobile.data.model.AgentLifecycle
 import sk.dilino.pulseclientmobile.data.model.AgentSummary
 import sk.dilino.pulseclientmobile.data.model.MetricsRecord
+import sk.dilino.pulseclientmobile.data.model.OfflineAlertSetting
 import sk.dilino.pulseclientmobile.data.network.PulseApiClient
 import sk.dilino.pulseclientmobile.ui.components.Severity
+import sk.dilino.pulseclientmobile.util.isOffline
 import sk.dilino.pulseclientmobile.util.severity
 
 private const val POLL_INTERVAL_MS = 10_000L
@@ -27,16 +29,24 @@ data class FleetUiState(
     val agents: List<AgentSummary> = emptyList(),
     /** Recent snapshots per agent id, oldest → newest. Pending/revoked agents have none. */
     val metrics: Map<Long, List<MetricsRecord>> = emptyMap(),
+    /** Offline alert setting and state per agent id. */
+    val offlineAlerts: Map<Long, OfflineAlertSetting> = emptyMap(),
     val error: String? = null,
     val actionInFlightId: Long? = null
 ) {
-    val approvedCount get() = agents.count { it.lifecycle == AgentLifecycle.APPROVED }
+    /** Approved hosts that are reporting (not offline). */
+    val upCount get() = agents.count { it.lifecycle == AgentLifecycle.APPROVED && !isOffline(it) }
     val pendingCount get() = agents.count { it.lifecycle == AgentLifecycle.PENDING }
 
-    fun severityOf(agent: AgentSummary): Severity = when (agent.lifecycle) {
-        AgentLifecycle.PENDING -> Severity.WARNING
-        AgentLifecycle.REVOKED -> Severity.CRITICAL
-        AgentLifecycle.APPROVED -> metrics[agent.id]?.lastOrNull()?.severity ?: Severity.HEALTHY
+    /** An approved agent that stopped sending metrics (see [OfflineAlertSetting.isOffline]). */
+    fun isOffline(agent: AgentSummary): Boolean =
+        agent.lifecycle == AgentLifecycle.APPROVED && offlineAlerts[agent.id]?.isOffline() == true
+
+    fun severityOf(agent: AgentSummary): Severity = when {
+        agent.lifecycle == AgentLifecycle.PENDING -> Severity.WARNING
+        agent.lifecycle == AgentLifecycle.REVOKED -> Severity.CRITICAL
+        isOffline(agent) -> Severity.CRITICAL
+        else -> metrics[agent.id]?.lastOrNull()?.severity ?: Severity.HEALTHY
     }
 
     /** Hosts that need a human: anything not healthy. */
@@ -80,11 +90,15 @@ class FleetViewModel(private val api: PulseApiClient) : ViewModel() {
             return
         }
 
-        val metrics = coroutineScope {
-            agents.filter { it.lifecycle == AgentLifecycle.APPROVED }
+        val (metrics, offlineAlerts) = coroutineScope {
+            val offline = async { api.offlineAlerts().getOrNull() }
+            val metrics = agents.filter { it.lifecycle == AgentLifecycle.APPROVED }
                 .map { agent -> async { agent.id to api.metrics(agent.id, SNAPSHOTS_PER_HOST).getOrNull() } }
                 .awaitAll()
-        }.mapNotNull { (id, list) -> list?.let { id to it } }.toMap()
+                .mapNotNull { (id, list) -> list?.let { id to it } }
+                .toMap()
+            metrics to offline.await()?.associateBy { it.agentId }
+        }
 
         _uiState.update {
             it.copy(
@@ -94,6 +108,8 @@ class FleetViewModel(private val api: PulseApiClient) : ViewModel() {
                 agents = agents.sortedBy { a -> a.hostname },
                 // Keep the last known series for a host whose metrics call blipped.
                 metrics = it.metrics.filterKeys { id -> agents.any { a -> a.id == id } } + metrics,
+                // Same for the offline states.
+                offlineAlerts = offlineAlerts ?: it.offlineAlerts,
                 error = null
             )
         }

@@ -137,6 +137,8 @@ data class OfflineAlertSetting(
     @SerialName("agent_id") val agentId: Long,
     /** Seconds without metrics before the agent counts as offline; null when not watched (the default). */
     @SerialName("after_secs") val afterSecs: Long? = null,
+    /** UTC `YYYY-MM-DD HH:MM:SS`; null if it never sent any. */
+    @SerialName("last_metrics_at") val lastMetricsAt: String? = null,
     /** It has an active offline alert: quiet for longer than [afterSecs] and hasn't sent metrics since. */
     val offline: Boolean = false
 )
