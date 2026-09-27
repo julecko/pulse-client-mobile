@@ -365,6 +365,10 @@ private fun OverviewTab(state: HostDetailUiState, vm: HostDetailViewModel, onBac
         Fact("FINGERPRINT", agent.fingerprint)
     }
 
+    if (agent.lifecycle == AgentLifecycle.APPROVED) {
+        OfflineAlertSection(state, vm)
+    }
+
     Cap("AGENT", Modifier.padding(start = 18.dp, end = 18.dp, top = 18.dp, bottom = 10.dp))
     Row(Modifier.padding(horizontal = 18.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         when (agent.lifecycle) {
@@ -379,6 +383,37 @@ private fun OverviewTab(state: HostDetailUiState, vm: HostDetailViewModel, onBac
             AgentLifecycle.REVOKED -> {
                 ActionButton("UNREVOKE", false, state.actionInFlight, vm::unrevoke)
                 ActionButton("REMOVE", false, state.actionInFlight) { vm.remove(onBack) }
+            }
+        }
+    }
+}
+
+/** Limits offered for the offline alert, in seconds; the server takes 60 s to 30 days. */
+private val OFFLINE_PRESETS = listOf("2M" to 120L, "5M" to 300L, "15M" to 900L, "1H" to 3600L)
+
+/** Alert (and push) when the agent sends no metrics for the chosen time. */
+@Composable
+private fun OfflineAlertSection(state: HostDetailUiState, vm: HostDetailViewModel) {
+    val setting = state.offlineAlert
+    val after = setting?.afterSecs
+    Cap("OFFLINE ALERT", Modifier.padding(start = 18.dp, end = 18.dp, top = 18.dp, bottom = 6.dp))
+    Text(
+        text = when {
+            setting == null -> "Loading…"
+            after == null -> "Off — no alert if this host stops sending metrics."
+            setting.offline -> "OFFLINE — no metrics for over ${formatUptime(after)}."
+            else -> "Alerts if no metrics arrive for ${formatUptime(after)}."
+        },
+        fontSize = 12.sp,
+        lineHeight = 17.sp,
+        color = if (setting?.offline == true) Severity.CRITICAL.color() else PulseColors.TextSecondary,
+        modifier = Modifier.padding(start = 18.dp, end = 18.dp, bottom = 10.dp)
+    )
+    if (setting != null) {
+        Row(Modifier.padding(horizontal = 18.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            ActionButton("OFF", after == null, state.actionInFlight) { vm.setOfflineAlert(null) }
+            OFFLINE_PRESETS.forEach { (label, secs) ->
+                ActionButton(label, after == secs, state.actionInFlight) { vm.setOfflineAlert(secs) }
             }
         }
     }

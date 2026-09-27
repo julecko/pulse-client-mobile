@@ -20,9 +20,11 @@ import sk.dilino.pulseclientmobile.data.model.LoginRequest
 import sk.dilino.pulseclientmobile.data.model.LoginResponse
 import sk.dilino.pulseclientmobile.data.model.MetricsRecord
 import sk.dilino.pulseclientmobile.data.model.NewAlertRule
+import sk.dilino.pulseclientmobile.data.model.OfflineAlertSetting
 import sk.dilino.pulseclientmobile.data.model.PairingStatus
 import sk.dilino.pulseclientmobile.data.model.PushDevice
 import sk.dilino.pulseclientmobile.data.model.RegisterPushDevice
+import sk.dilino.pulseclientmobile.data.model.SetOfflineAlert
 import sk.dilino.pulseclientmobile.data.model.SetPairingRequest
 import sk.dilino.pulseclientmobile.data.model.UpdateAlertRule
 import sk.dilino.pulseclientmobile.data.model.UserInfo
@@ -221,6 +223,28 @@ class PulseApiClient(
             val body = json.encodeToString(SetPairingRequest(open, if (open) minutes else null))
             authed("/agents/pairing", { put(body.toRequestBody(JSON_MEDIA)) }) { response ->
                 json.decodeFromString<PairingStatus>(response.body?.string().orEmpty())
+            }
+        }
+    }
+
+    // ------------------------------------------------------------ offline alerts
+
+    /** Agent [agentId]'s offline alert setting; null if the server doesn't list it. */
+    suspend fun offlineAlert(agentId: Long): Result<OfflineAlertSetting?> = withContext(Dispatchers.IO) {
+        runCatching {
+            authed("/agents/offline-alerts") { response ->
+                json.decodeFromString<List<OfflineAlertSetting>>(response.body?.string().orEmpty())
+                    .firstOrNull { it.agentId == agentId }
+            }
+        }
+    }
+
+    /** Alerts (and pushes) when the agent sends no metrics for [afterSecs] (60 s to 30 days); null turns it off. */
+    suspend fun setOfflineAlert(agentId: Long, afterSecs: Long?): Result<OfflineAlertSetting> = withContext(Dispatchers.IO) {
+        runCatching {
+            val body = json.encodeToString(SetOfflineAlert(afterSecs))
+            authed("/agents/$agentId/offline-alert", { put(body.toRequestBody(JSON_MEDIA)) }) { response ->
+                json.decodeFromString<OfflineAlertSetting>(response.body?.string().orEmpty())
             }
         }
     }

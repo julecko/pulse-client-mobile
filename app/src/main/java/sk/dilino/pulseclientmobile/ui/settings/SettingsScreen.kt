@@ -354,6 +354,7 @@ private fun AppUpdateSection(vm: SettingsViewModel) {
             is UpdateStatus.Installing -> status.release
             is UpdateStatus.AwaitingConfirmation -> status.release
             is UpdateStatus.Failed -> status.release
+            is UpdateStatus.Installed -> status.release
             else -> null
         }
         release?.notes?.let {
@@ -369,6 +370,7 @@ private fun AppUpdateSection(vm: SettingsViewModel) {
                 }
                 is UpdateStatus.AwaitingConfirmation -> Chip("CONFIRM INSTALL", primary = true) { context.startActivity(status.confirm) }
                 is UpdateStatus.Failed -> status.release?.let { r -> Chip("RETRY", primary = true) { vm.installUpdate(r) } }
+                is UpdateStatus.Installed -> Chip("RESTART", primary = true) { AppUpdater.restart() }
                 else -> Unit
             }
             Chip("CHECK NOW", enabled = !update.busy) { vm.checkForUpdate() }

@@ -17,6 +17,8 @@ fun describe(status: UpdateStatus): String = when (status) {
     is UpdateStatus.Installing -> "Installing ${label(status.release)}…"
     is UpdateStatus.AwaitingConfirmation -> "Confirm the install of ${label(status.release)}"
     is UpdateStatus.Failed -> status.message
+    is UpdateStatus.Installed ->
+        "${status.release?.let(::label) ?: "A new version"} installed · restarting…"
 }
 
 private fun label(release: AppRelease) = "Version ${release.versionName}"

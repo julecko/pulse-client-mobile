@@ -28,15 +28,16 @@ import sk.dilino.pulseclientmobile.update.describe
 
 /**
  * A strip above every screen while an app update is available or on its way; shows nothing
- * otherwise. Its action installs it, opens the install permission setting, or re-shows Android's
- * confirmation prompt.
+ * otherwise. Its action installs it, opens the install permission setting, re-shows Android's
+ * confirmation prompt, or restarts into an installed update.
  */
 @Composable
 fun UpdateBanner(
     state: UpdateState,
     onInstall: (AppRelease) -> Unit,
     onAllowInstalls: () -> Unit,
-    onConfirm: (Intent) -> Unit
+    onConfirm: (Intent) -> Unit,
+    onRestart: () -> Unit
 ) {
     val status = state.status
     val action: Pair<String, (() -> Unit)?> = when (status) {
@@ -44,6 +45,7 @@ fun UpdateBanner(
         is UpdateStatus.NeedsPermission -> "ALLOW" to onAllowInstalls
         is UpdateStatus.AwaitingConfirmation -> "CONFIRM" to { onConfirm(status.confirm) }
         is UpdateStatus.Failed -> status.release?.let { release -> "RETRY" to { onInstall(release) } } ?: return
+        is UpdateStatus.Installed -> "RESTART" to onRestart
         is UpdateStatus.Downloading, is UpdateStatus.Installing -> "…" to null
         else -> return
     }

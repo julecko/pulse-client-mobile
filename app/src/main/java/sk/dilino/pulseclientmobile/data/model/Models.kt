@@ -131,6 +131,20 @@ data class PairingStatus(
 @Serializable
 data class SetPairingRequest(val open: Boolean, val minutes: Int? = null)
 
+/** Mirrors `protocol::OfflineAlertSetting` — returned by `GET /agents/offline-alerts` and `PUT /agents/{id}/offline-alert`. */
+@Serializable
+data class OfflineAlertSetting(
+    @SerialName("agent_id") val agentId: Long,
+    /** Seconds without metrics before the agent counts as offline; null when not watched (the default). */
+    @SerialName("after_secs") val afterSecs: Long? = null,
+    /** It has an active offline alert: quiet for longer than [afterSecs] and hasn't sent metrics since. */
+    val offline: Boolean = false
+)
+
+/** Mirrors `protocol::SetOfflineAlert` — sent to `PUT /agents/{id}/offline-alert`; null turns it off. */
+@Serializable
+data class SetOfflineAlert(@SerialName("after_secs") val afterSecs: Long?)
+
 // ---------------------------------------------------------------- alerts
 
 /** Mirrors `protocol::AlertMetric` — a value an [AlertRule] compares against a threshold. */
