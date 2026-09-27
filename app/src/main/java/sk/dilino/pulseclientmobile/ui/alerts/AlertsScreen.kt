@@ -76,6 +76,7 @@ fun AlertsScreen(viewModel: AlertsViewModel, onOpenHost: (Long) -> Unit) {
             ) {
                 Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(bottom = 28.dp)) {
                     FilterRow(state.filter, viewModel::setFilter)
+                    AckAllBar(state, viewModel)
                     AlertsList(state, viewModel, onOpenHost)
                 }
             }
@@ -155,6 +156,27 @@ private fun FilterRow(filter: AlertFilter, onSelect: (AlertFilter) -> Unit) {
 }
 
 @Composable
+private fun AckAllBar(state: AlertsUiState, vm: AlertsViewModel) {
+    val count = state.unacknowledgedInView.size
+    if (count == 0) return
+    Row(
+        Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            "$count unacknowledged",
+            fontSize = 11.sp, color = PulseColors.TextTertiary, modifier = Modifier.weight(1f)
+        )
+        FormButton(
+            if (state.acknowledgingAll) "…" else "ACKNOWLEDGE ALL",
+            primary = false,
+            enabled = !state.acknowledgingAll
+        ) { vm.acknowledgeAll() }
+    }
+    Spacer(Modifier.height(8.dp))
+}
+
+@Composable
 private fun AlertsList(state: AlertsUiState, vm: AlertsViewModel, onOpenHost: (Long) -> Unit) {
     val alerts = state.filteredAlerts
     when {
@@ -223,7 +245,7 @@ private fun AlertCard(alert: AlertRecord, state: AlertsUiState, vm: AlertsViewMo
                         FormButton("OPEN HOST", primary = true) { onOpenHost(alert.agentId) }
                     }
                     if (!alert.isAcknowledged) {
-                        val busy = state.ackInFlightId == alert.id
+                        val busy = state.ackInFlightId == alert.id || state.acknowledgingAll
                         FormButton(if (busy) "…" else "ACKNOWLEDGE", primary = alert.agentId == null, enabled = !busy) { vm.acknowledge(alert.id) }
                     }
                 }

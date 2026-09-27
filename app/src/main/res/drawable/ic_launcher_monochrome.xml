@@ -4,10 +4,10 @@
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-    <!-- The Pulse mark: an EKG-style trace in the app's accent, kept inside the 66dp adaptive-icon safe zone. -->
+    <!-- Themed-icon (Android 13+) variant: shape only, alpha-masked and tinted by the system. -->
     <path
         android:pathData="M28,54 L38,54 L44,36 L54,72 L59,44 L64,54 L80,54"
-        android:strokeColor="#FF563C"
+        android:strokeColor="#FFFFFF"
         android:strokeWidth="8"
         android:strokeLineCap="round"
         android:strokeLineJoin="round"

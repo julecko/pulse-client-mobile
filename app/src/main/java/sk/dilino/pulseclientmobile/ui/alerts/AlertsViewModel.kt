@@ -2,6 +2,9 @@ package sk.dilino.pulseclientmobile.ui.alerts
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -44,6 +47,7 @@ data class AlertsUiState(
     val expandedId: Long? = null,
     val alertsError: String? = null,
     val ackInFlightId: Long? = null,
+    val acknowledgingAll: Boolean = false,
 
     val rules: List<AlertRule> = emptyList(),
     val rulesLoaded: Boolean = false,
@@ -67,6 +71,9 @@ data class AlertsUiState(
             AlertFilter.WARNING -> alerts.filter { it.severityEnum == AlertSeverity.WARNING }
             AlertFilter.ACKNOWLEDGED -> alerts.filter { it.isAcknowledged }
         }
+
+    /** Alerts in the current filter that still need a human to see them. */
+    val unacknowledgedInView: List<AlertRecord> get() = filteredAlerts.filter { !it.isAcknowledged }
 
     fun hostnameOf(agentId: Long?) = agentId?.let { id -> agents.firstOrNull { it.id == id }?.hostname }
 }
@@ -109,6 +116,20 @@ class AlertsViewModel(private val api: PulseApiClient) : ViewModel() {
             _uiState.update { it.copy(ackInFlightId = alertId) }
             api.acknowledgeAlert(alertId)
             _uiState.update { it.copy(ackInFlightId = null) }
+            loadAlerts(showSpinner = false)
+        }
+    }
+
+    /** Acknowledges every unacknowledged alert currently in view (respects the active filter). */
+    fun acknowledgeAll() {
+        val ids = _uiState.value.unacknowledgedInView.map { it.id }
+        if (ids.isEmpty()) return
+        viewModelScope.launch {
+            _uiState.update { it.copy(acknowledgingAll = true) }
+            coroutineScope {
+                ids.map { id -> async { api.acknowledgeAlert(id) } }.awaitAll()
+            }
+            _uiState.update { it.copy(acknowledgingAll = false) }
             loadAlerts(showSpinner = false)
         }
     }
