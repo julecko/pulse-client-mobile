@@ -83,18 +83,19 @@ lists every device registered for the account and can remove one. This needs:
 ## Updates
 
 The app updates itself from your Pulse server, no app store needed. Build a signed release APK with a
-higher `versionCode` than the installed one (`app/build.gradle.kts`), then upload it on the server:
+higher `versionCode` than the installed one (`app/build.gradle.kts`; `versionName` follows
+`MAJOR.MINOR.PATCH`), then upload it on the server:
 
 ```sh
 ./gradlew assembleRelease
 pulse-server-cli -u alice app upload app/build/outputs/apk/release/app-release.apk \
-    --version-code 2 --version-name 1.1 --notes "What changed"
+    --version-code 2 --version-name 1.1.0 --notes "What changed"
 ```
 
 Whenever the app comes to the foreground (at most every 10 minutes, or right away after the "update
 available" push the upload sends), it asks `GET /app-releases/latest` whether there's a higher version
 code than its own. If so, a banner shows at the top of every screen, and Settings → **APP** shows the
-version, the release notes and the controls. With **auto-update** on (the default) the app installs it
+new version, the release notes and the controls. With **auto-update** on (the default) the app installs it
 right away: it downloads the APK, checks its SHA-256 against the server's, checks that it's this app
 with the advertised version code, and installs it with Android's `PackageInstaller`.
 
@@ -104,6 +105,9 @@ with the advertised version code, and installs it with Android's `PackageInstall
 - Android only accepts an update signed with the **same key** as the installed app — keep your release
   keystore safe. A debug build can't update to a release build or vice versa.
 - After an update the app is restarted by Android and posts an "Pulse updated" notification.
+
+The installed version is shown on the connect screen, in the Settings header and footer, and in
+Settings → **APP**.
 
 ## Building
 

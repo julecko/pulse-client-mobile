@@ -42,11 +42,13 @@ import sk.dilino.pulseclientmobile.update.AppUpdater
 import sk.dilino.pulseclientmobile.update.UpdateState
 import sk.dilino.pulseclientmobile.update.UpdateStatus
 import sk.dilino.pulseclientmobile.update.describe
+import sk.dilino.pulseclientmobile.update.installedVersionLabel
 import sk.dilino.pulseclientmobile.util.formatServerDateTime
 
 @Composable
 fun SettingsScreen(viewModel: SettingsViewModel, onOpenHost: (Long) -> Unit = {}) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
+    val update by AppUpdater.state.collectAsStateWithLifecycle()
 
     Column(
         modifier = Modifier
@@ -60,7 +62,7 @@ fun SettingsScreen(viewModel: SettingsViewModel, onOpenHost: (Long) -> Unit = {}
                 color = PulseColors.TextPrimary
             )
             Spacer(Modifier.height(7.dp))
-            Text("Signed in as ${state.username}", fontSize = 11.sp, color = PulseColors.TextTertiary)
+            Text("Signed in as ${state.username} · Pulse ${installedVersionLabel(update)}", fontSize = 11.sp, color = PulseColors.TextTertiary)
         }
         Box(Modifier.fillMaxWidth().height(2.dp).background(PulseColors.Border))
 
@@ -81,7 +83,7 @@ fun SettingsScreen(viewModel: SettingsViewModel, onOpenHost: (Long) -> Unit = {}
             Divider()
             AccountSection(viewModel)
             Text(
-                text = "Sentry · read-only fleet monitor",
+                text = "Sentry · read-only fleet monitor · ${installedVersionLabel(update, withCode = true)}",
                 fontSize = 10.5.sp,
                 color = PulseColors.TextTertiary,
                 modifier = Modifier.padding(horizontal = 18.dp, vertical = 8.dp)
@@ -337,7 +339,7 @@ private fun AppUpdateSection(vm: SettingsViewModel) {
     val context = LocalContext.current
     Section("APP") {
         Text(
-            "Pulse ${update.installedVersionName} (${update.installedVersionCode})",
+            "Installed · Pulse ${installedVersionLabel(update, withCode = true)}",
             fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = PulseColors.TextPrimary
         )
         Spacer(Modifier.height(6.dp))

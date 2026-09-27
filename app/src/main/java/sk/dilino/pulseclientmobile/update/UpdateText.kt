@@ -20,3 +20,7 @@ fun describe(status: UpdateStatus): String = when (status) {
 }
 
 private fun label(release: AppRelease) = "Version ${release.versionName}"
+
+/** This app's own version, e.g. `v1.1.0 (2)`, shown on the connect and settings screens. */
+fun installedVersionLabel(state: UpdateState, withCode: Boolean = false): String =
+    "v${state.installedVersionName}" + if (withCode) " (${state.installedVersionCode})" else ""
