@@ -5,7 +5,7 @@ import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
@@ -15,9 +15,9 @@ import sk.dilino.pulseclientmobile.data.model.AgentSummary
 import sk.dilino.pulseclientmobile.data.model.MetricsRecord
 import sk.dilino.pulseclientmobile.data.network.PulseApiClient
 import sk.dilino.pulseclientmobile.ui.components.Severity
+import sk.dilino.pulseclientmobile.util.pollEvery
 import sk.dilino.pulseclientmobile.util.severity
 
-private const val POLL_INTERVAL_MS = 10_000L
 private const val SNAPSHOTS_PER_HOST = 48
 
 data class FleetUiState(
@@ -48,7 +48,7 @@ data class FleetUiState(
     val attentionCount get() = agents.count { severityOf(it) != Severity.HEALTHY }
 }
 
-class FleetViewModel(private val api: PulseApiClient) : ViewModel() {
+class FleetViewModel(private val api: PulseApiClient, refreshIntervalSecs: Flow<Int>) : ViewModel() {
 
     private val _uiState = MutableStateFlow(FleetUiState())
     val uiState: StateFlow<FleetUiState> = _uiState
@@ -57,10 +57,7 @@ class FleetViewModel(private val api: PulseApiClient) : ViewModel() {
         // The agents report on an interval; keep the fleet view in step with them.
         viewModelScope.launch {
             fetch(showSpinner = true, isRefresh = false)
-            while (true) {
-                delay(POLL_INTERVAL_MS)
-                fetch(showSpinner = false, isRefresh = false)
-            }
+            pollEvery(refreshIntervalSecs) { fetch(showSpinner = false, isRefresh = false) }
         }
     }
 

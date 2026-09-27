@@ -47,6 +47,7 @@ import sk.dilino.pulseclientmobile.ui.theme.PulseColors
 import sk.dilino.pulseclientmobile.util.cpuPercent
 import sk.dilino.pulseclientmobile.util.diskPercent
 import sk.dilino.pulseclientmobile.util.formatAgo
+import sk.dilino.pulseclientmobile.util.formatDuration
 import sk.dilino.pulseclientmobile.util.formatPercent
 import sk.dilino.pulseclientmobile.util.formatServerDateTime
 import sk.dilino.pulseclientmobile.util.formatUptime
@@ -63,6 +64,7 @@ private fun Severity.pillLabel() = when (this) {
 @Composable
 fun FleetScreen(
     viewModel: FleetViewModel,
+    refreshSecs: Int,
     onOpenAgent: (Long) -> Unit
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
@@ -105,7 +107,7 @@ fun FleetScreen(
                     }
                     item {
                         Text(
-                            text = "Pull to refresh · agent poll every 10s",
+                            text = "Pull to refresh · updates every ${formatDuration(refreshSecs)} (change in Settings)",
                             fontSize = 11.sp,
                             color = PulseColors.TextTertiary,
                             modifier = Modifier.padding(18.dp)

@@ -69,6 +69,8 @@ fun SettingsScreen(viewModel: SettingsViewModel, onOpenHost: (Long) -> Unit = {}
         ) {
             ServerSection(state)
             Divider()
+            RefreshSection(viewModel)
+            Divider()
             PairingSection(state, viewModel)
             Divider()
             HostsSection(state, viewModel, onOpenHost)
@@ -143,6 +145,29 @@ private fun ServerSection(state: SettingsUiState) {
         }
         Spacer(Modifier.height(6.dp))
         Text("To use another server, sign out below.", fontSize = 11.sp, color = PulseColors.TextTertiary)
+    }
+}
+
+// ---------------------------------------------------------------- refresh
+
+/** Intervals offered; each screen also refreshes on pull or when opened. */
+private val REFRESH_CHOICES = listOf(5 to "5 SEC", 10 to "10 SEC", 30 to "30 SEC", 60 to "1 MIN", 300 to "5 MIN")
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun RefreshSection(vm: SettingsViewModel) {
+    val secs by vm.refreshIntervalSecs.collectAsStateWithLifecycle()
+    Section("AUTO REFRESH") {
+        Text(
+            "How often the host list, host details and alerts reload from the server while open. Longer intervals save battery and data.",
+            fontSize = 11.5.sp, lineHeight = 17.sp, color = PulseColors.TextSecondary
+        )
+        Spacer(Modifier.height(10.dp))
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            REFRESH_CHOICES.forEach { (value, label) ->
+                Chip(label, primary = secs == value) { vm.setRefreshInterval(value) }
+            }
+        }
     }
 }
 

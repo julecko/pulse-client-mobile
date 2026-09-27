@@ -87,6 +87,9 @@ Offline alerts resolve by themselves once the host sends metrics again.
 Each host's **AUTH** tab chooses which of its PAM events are pushed (logins, failures, logouts) and
 shows where each remote login came from, when the server could locate it.
 
+Settings → **AUTO REFRESH** sets how often the host list, host details and alerts reload while open
+(5 s, 10 s by default, 30 s, 1 min or 5 min). It's stored on the device and kept across sign-outs.
+
 Settings → **DATA RETENTION** sets how long the server keeps metrics, auth events and resolved alerts
 (7 days … 1 year, or forever), or resets one to the server config's default. Shortening a period
 deletes the older data on the server right away, so it asks for a second tap first.

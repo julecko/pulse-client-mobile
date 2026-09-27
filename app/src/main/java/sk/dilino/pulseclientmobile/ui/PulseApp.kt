@@ -40,6 +40,7 @@ import com.google.firebase.messaging.FirebaseMessaging
 import kotlinx.coroutines.suspendCancellableCoroutine
 import sk.dilino.pulseclientmobile.data.Connection
 import sk.dilino.pulseclientmobile.data.ConnectionStore
+import sk.dilino.pulseclientmobile.data.DEFAULT_REFRESH_INTERVAL_SECS
 import sk.dilino.pulseclientmobile.data.network.PulseApiClient
 import sk.dilino.pulseclientmobile.ui.alerts.AlertsScreen
 import sk.dilino.pulseclientmobile.ui.alerts.AlertsViewModel
@@ -112,15 +113,19 @@ private fun MainScaffold(current: Connection, openAlertsRequest: Int) {
         ) {
             composable(ROUTE_FLEET) {
                 val api = LocalPulseApi.current
-                val vm: FleetViewModel = viewModel(factory = viewModelFactory { initializer { FleetViewModel(api) } })
+                val store = LocalConnectionStore.current
+                val vm: FleetViewModel = viewModel(factory = viewModelFactory { initializer { FleetViewModel(api, store.refreshIntervalSecs) } })
+                val refreshSecs by store.refreshIntervalSecs.collectAsStateWithLifecycle(initialValue = DEFAULT_REFRESH_INTERVAL_SECS)
                 FleetScreen(
+                    refreshSecs = refreshSecs,
                     viewModel = vm,
                     onOpenAgent = { id -> navController.navigate(hostDetailRoute(id)) }
                 )
             }
             composable(ROUTE_ALERTS) {
                 val api = LocalPulseApi.current
-                val vm: AlertsViewModel = viewModel(factory = viewModelFactory { initializer { AlertsViewModel(api) } })
+                val store = LocalConnectionStore.current
+                val vm: AlertsViewModel = viewModel(factory = viewModelFactory { initializer { AlertsViewModel(api, store.refreshIntervalSecs) } })
                 AlertsScreen(viewModel = vm, onOpenHost = { id -> navController.navigate(hostDetailRoute(id)) })
             }
             composable(ROUTE_SETTINGS) {
@@ -134,10 +139,11 @@ private fun MainScaffold(current: Connection, openAlertsRequest: Int) {
             composable(ROUTE_HOST_DETAIL) { backStackEntry ->
                 val agentId = backStackEntry.arguments?.getString("agentId")?.toLongOrNull()
                 val api = LocalPulseApi.current
+                val store = LocalConnectionStore.current
                 if (agentId != null) {
                     val vm: HostDetailViewModel = viewModel(
                         key = "host-$agentId",
-                        factory = viewModelFactory { initializer { HostDetailViewModel(api, agentId) } }
+                        factory = viewModelFactory { initializer { HostDetailViewModel(api, agentId, store.refreshIntervalSecs) } }
                     )
                     HostDetailScreen(viewModel = vm, onBack = { navController.popBackStack() })
                 }

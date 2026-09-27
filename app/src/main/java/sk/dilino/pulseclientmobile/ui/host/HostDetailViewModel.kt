@@ -2,7 +2,7 @@ package sk.dilino.pulseclientmobile.ui.host
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
@@ -14,8 +14,8 @@ import sk.dilino.pulseclientmobile.data.model.MetricsRecord
 import sk.dilino.pulseclientmobile.data.model.OfflineAlertSetting
 import sk.dilino.pulseclientmobile.data.model.PamNotifications
 import sk.dilino.pulseclientmobile.data.network.PulseApiClient
+import sk.dilino.pulseclientmobile.util.pollEvery
 
-private const val POLL_INTERVAL_MS = 10_000L
 private const val SNAPSHOT_WINDOW = 96
 
 enum class HostTab(val label: String) { OVERVIEW("OVERVIEW"), CPU("CPU"), AUTH("AUTH"), SNAPSHOTS("SNAPSHOTS") }
@@ -51,7 +51,8 @@ data class HostDetailUiState(
 
 class HostDetailViewModel(
     private val api: PulseApiClient,
-    private val agentId: Long
+    private val agentId: Long,
+    refreshIntervalSecs: Flow<Int>
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(HostDetailUiState())
@@ -59,10 +60,8 @@ class HostDetailViewModel(
 
     init {
         viewModelScope.launch {
-            while (true) {
-                fetch()
-                delay(POLL_INTERVAL_MS)
-            }
+            fetch()
+            pollEvery(refreshIntervalSecs) { fetch() }
         }
     }
 

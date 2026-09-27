@@ -5,7 +5,7 @@ import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
@@ -20,8 +20,8 @@ import sk.dilino.pulseclientmobile.data.model.GeoAlertSettings
 import sk.dilino.pulseclientmobile.data.model.NewAlertRule
 import sk.dilino.pulseclientmobile.data.model.OfflineAlertSetting
 import sk.dilino.pulseclientmobile.data.network.PulseApiClient
+import sk.dilino.pulseclientmobile.util.pollEvery
 
-private const val ALERTS_POLL_INTERVAL_MS = 15_000L
 private const val ALERTS_LIMIT = 200
 
 enum class AlertsTab { ALERTS, RULES }
@@ -110,7 +110,7 @@ data class AlertsUiState(
     fun hostnameOf(agentId: Long?) = agentId?.let { id -> agents.firstOrNull { it.id == id }?.hostname }
 }
 
-class AlertsViewModel(private val api: PulseApiClient) : ViewModel() {
+class AlertsViewModel(private val api: PulseApiClient, refreshIntervalSecs: Flow<Int>) : ViewModel() {
 
     private val _uiState = MutableStateFlow(AlertsUiState())
     val uiState: StateFlow<AlertsUiState> = _uiState
@@ -118,10 +118,7 @@ class AlertsViewModel(private val api: PulseApiClient) : ViewModel() {
     init {
         viewModelScope.launch {
             loadAlerts(showSpinner = true)
-            while (true) {
-                delay(ALERTS_POLL_INTERVAL_MS)
-                loadAlerts(showSpinner = false)
-            }
+            pollEvery(refreshIntervalSecs) { loadAlerts(showSpinner = false) }
         }
         viewModelScope.launch { loadRulesAndAgents() }
     }

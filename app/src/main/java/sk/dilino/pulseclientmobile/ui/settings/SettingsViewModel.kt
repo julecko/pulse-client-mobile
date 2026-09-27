@@ -3,11 +3,14 @@ package sk.dilino.pulseclientmobile.ui.settings
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import sk.dilino.pulseclientmobile.data.Connection
 import sk.dilino.pulseclientmobile.data.ConnectionStore
+import sk.dilino.pulseclientmobile.data.DEFAULT_REFRESH_INTERVAL_SECS
 import sk.dilino.pulseclientmobile.data.model.AgentSummary
 import sk.dilino.pulseclientmobile.data.model.PairingStatus
 import sk.dilino.pulseclientmobile.data.model.PushDevice
@@ -63,6 +66,14 @@ class SettingsViewModel(
         )
     )
     val uiState: StateFlow<SettingsUiState> = _uiState
+
+    /** How often screens re-fetch, in seconds; a device preference, not a server setting. */
+    val refreshIntervalSecs: StateFlow<Int> = connectionStore.refreshIntervalSecs
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), DEFAULT_REFRESH_INTERVAL_SECS)
+
+    fun setRefreshInterval(secs: Int) {
+        viewModelScope.launch { connectionStore.setRefreshInterval(secs) }
+    }
 
     init {
         refresh()
