@@ -229,15 +229,18 @@ class PulseApiClient(
 
     // ------------------------------------------------------------ offline alerts
 
-    /** Agent [agentId]'s offline alert setting; null if the server doesn't list it. */
-    suspend fun offlineAlert(agentId: Long): Result<OfflineAlertSetting?> = withContext(Dispatchers.IO) {
+    /** Every agent's offline alert setting and state. */
+    suspend fun offlineAlerts(): Result<List<OfflineAlertSetting>> = withContext(Dispatchers.IO) {
         runCatching {
             authed("/agents/offline-alerts") { response ->
                 json.decodeFromString<List<OfflineAlertSetting>>(response.body?.string().orEmpty())
-                    .firstOrNull { it.agentId == agentId }
             }
         }
     }
+
+    /** Agent [agentId]'s offline alert setting; null if the server doesn't list it. */
+    suspend fun offlineAlert(agentId: Long): Result<OfflineAlertSetting?> =
+        offlineAlerts().map { all -> all.firstOrNull { it.agentId == agentId } }
 
     /** Alerts (and pushes) when the agent sends no metrics for [afterSecs] (60 s to 30 days); null turns it off. */
     suspend fun setOfflineAlert(agentId: Long, afterSecs: Long?): Result<OfflineAlertSetting> = withContext(Dispatchers.IO) {

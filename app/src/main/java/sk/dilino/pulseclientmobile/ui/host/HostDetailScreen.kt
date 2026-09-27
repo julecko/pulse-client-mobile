@@ -55,6 +55,7 @@ import sk.dilino.pulseclientmobile.ui.components.Sparkline
 import sk.dilino.pulseclientmobile.ui.components.StatusPill
 import sk.dilino.pulseclientmobile.ui.components.color
 import sk.dilino.pulseclientmobile.ui.theme.PulseColors
+import sk.dilino.pulseclientmobile.util.DEFAULT_OFFLINE_AFTER_SECS
 import sk.dilino.pulseclientmobile.util.cpuPercent
 import sk.dilino.pulseclientmobile.util.diskPercent
 import sk.dilino.pulseclientmobile.util.formatBytes
@@ -65,6 +66,7 @@ import sk.dilino.pulseclientmobile.util.formatServerDateTime
 import sk.dilino.pulseclientmobile.util.formatServerTime
 import sk.dilino.pulseclientmobile.util.formatSigned
 import sk.dilino.pulseclientmobile.util.formatUptime
+import sk.dilino.pulseclientmobile.util.isOffline
 import sk.dilino.pulseclientmobile.util.memPercent
 import sk.dilino.pulseclientmobile.util.parseServerMillis
 import sk.dilino.pulseclientmobile.util.severity
@@ -111,13 +113,15 @@ fun HostDetailScreen(
         }
 
         val shown = state.shown
-        val severity = when (agent.lifecycle) {
-            AgentLifecycle.PENDING -> Severity.WARNING
-            AgentLifecycle.REVOKED -> Severity.CRITICAL
-            AgentLifecycle.APPROVED -> shown?.severity ?: Severity.HEALTHY
+        val offline = agent.lifecycle == AgentLifecycle.APPROVED && state.offlineAlert?.isOffline() == true
+        val severity = when {
+            agent.lifecycle == AgentLifecycle.PENDING -> Severity.WARNING
+            agent.lifecycle == AgentLifecycle.REVOKED -> Severity.CRITICAL
+            offline -> Severity.CRITICAL
+            else -> shown?.severity ?: Severity.HEALTHY
         }
 
-        HostHeader(agent.hostname, severity, agent.id, agent.fingerprint, agent.lifecycle)
+        HostHeader(agent.hostname, severity, agent.id, agent.fingerprint, agent.lifecycle, offline)
 
         if (state.snapshots.isNotEmpty()) {
             Timeline(state, viewModel)
@@ -142,7 +146,7 @@ fun HostDetailScreen(
 }
 
 @Composable
-private fun HostHeader(name: String, severity: Severity, id: Long, fingerprint: String, lifecycle: AgentLifecycle) {
+private fun HostHeader(name: String, severity: Severity, id: Long, fingerprint: String, lifecycle: AgentLifecycle, offline: Boolean) {
     Column(Modifier.padding(horizontal = 18.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             SeverityMarker(severity, size = 10)
@@ -152,7 +156,7 @@ private fun HostHeader(name: String, severity: Severity, id: Long, fingerprint: 
                 when (lifecycle) {
                     AgentLifecycle.PENDING -> "PENDING"
                     AgentLifecycle.REVOKED -> "REVOKED"
-                    AgentLifecycle.APPROVED -> when (severity) {
+                    AgentLifecycle.APPROVED -> if (offline) "OFFLINE" else when (severity) {
                         Severity.HEALTHY -> "OK"
                         Severity.WARNING -> "WARN"
                         Severity.CRITICAL -> "CRIT"
@@ -396,17 +400,20 @@ private val OFFLINE_PRESETS = listOf("2M" to 120L, "5M" to 300L, "15M" to 900L, 
 private fun OfflineAlertSection(state: HostDetailUiState, vm: HostDetailViewModel) {
     val setting = state.offlineAlert
     val after = setting?.afterSecs
+    val offline = setting?.isOffline() == true
     Cap("OFFLINE ALERT", Modifier.padding(start = 18.dp, end = 18.dp, top = 18.dp, bottom = 6.dp))
     Text(
         text = when {
             setting == null -> "Loading…"
+            after == null && offline ->
+                "OFFLINE — no metrics for over ${formatUptime(DEFAULT_OFFLINE_AFTER_SECS)}. No alert is set, so you weren't notified."
             after == null -> "Off — no alert if this host stops sending metrics."
-            setting.offline -> "OFFLINE — no metrics for over ${formatUptime(after)}."
+            offline -> "OFFLINE — no metrics for over ${formatUptime(after)}."
             else -> "Alerts if no metrics arrive for ${formatUptime(after)}."
         },
         fontSize = 12.sp,
         lineHeight = 17.sp,
-        color = if (setting?.offline == true) Severity.CRITICAL.color() else PulseColors.TextSecondary,
+        color = if (offline) Severity.CRITICAL.color() else PulseColors.TextSecondary,
         modifier = Modifier.padding(start = 18.dp, end = 18.dp, bottom = 10.dp)
     )
     if (setting != null) {

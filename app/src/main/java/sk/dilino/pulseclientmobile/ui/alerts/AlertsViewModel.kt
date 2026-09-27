@@ -24,7 +24,7 @@ private const val ALERTS_LIMIT = 200
 
 enum class AlertsTab { ALERTS, RULES }
 
-enum class AlertFilter { ALL, CRITICAL, WARNING, ACKNOWLEDGED }
+enum class AlertFilter { ALL, UNACKNOWLEDGED, CRITICAL, WARNING, ACKNOWLEDGED }
 
 /** In-progress state for the "new rule" form. */
 data class NewRuleDraft(
@@ -65,10 +65,12 @@ data class AlertsUiState(
 ) {
     val openCount get() = alerts.count { it.isActive }
     val ackCount get() = alerts.count { it.isAcknowledged }
+    val unackCount get() = alerts.count { !it.isAcknowledged }
 
     val filteredAlerts: List<AlertRecord>
         get() = when (filter) {
             AlertFilter.ALL -> alerts
+            AlertFilter.UNACKNOWLEDGED -> alerts.filter { !it.isAcknowledged }
             AlertFilter.CRITICAL -> alerts.filter { it.severityEnum == AlertSeverity.CRITICAL }
             AlertFilter.WARNING -> alerts.filter { it.severityEnum == AlertSeverity.WARNING }
             AlertFilter.ACKNOWLEDGED -> alerts.filter { it.isAcknowledged }

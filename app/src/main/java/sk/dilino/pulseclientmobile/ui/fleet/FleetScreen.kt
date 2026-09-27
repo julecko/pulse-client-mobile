@@ -46,6 +46,7 @@ import sk.dilino.pulseclientmobile.ui.components.color
 import sk.dilino.pulseclientmobile.ui.theme.PulseColors
 import sk.dilino.pulseclientmobile.util.cpuPercent
 import sk.dilino.pulseclientmobile.util.diskPercent
+import sk.dilino.pulseclientmobile.util.formatAgo
 import sk.dilino.pulseclientmobile.util.formatPercent
 import sk.dilino.pulseclientmobile.util.formatServerDateTime
 import sk.dilino.pulseclientmobile.util.formatUptime
@@ -94,6 +95,7 @@ fun FleetScreen(
                         HostRow(
                             agent = agent,
                             severity = state.severityOf(agent),
+                            offline = state.isOffline(agent),
                             snapshots = state.metrics[agent.id].orEmpty(),
                             busy = state.actionInFlightId == agent.id,
                             onClick = { onOpenAgent(agent.id) },
@@ -157,7 +159,7 @@ private fun FleetHeader(state: FleetUiState) {
                 .border(width = 1.dp, color = PulseColors.BorderSubtle)
                 .padding(vertical = 12.dp)
         ) {
-            SummaryStat("HOSTS UP", state.approvedCount, false, Modifier.weight(1f).padding(start = 18.dp))
+            SummaryStat("HOSTS UP", state.upCount, false, Modifier.weight(1f).padding(start = 18.dp))
             SummaryStat("ATTENTION", state.attentionCount, state.attentionCount > 0, Modifier.weight(1f).padding(start = 14.dp))
             SummaryStat("PENDING", state.pendingCount, state.pendingCount > 0, Modifier.weight(1f).padding(start = 14.dp))
         }
@@ -183,6 +185,7 @@ private fun SummaryStat(label: String, value: Int, hot: Boolean, modifier: Modif
 private fun HostRow(
     agent: AgentSummary,
     severity: Severity,
+    offline: Boolean,
     snapshots: List<MetricsRecord>,
     busy: Boolean,
     onClick: () -> Unit,
@@ -205,7 +208,7 @@ private fun HostRow(
                 when (agent.lifecycle) {
                     AgentLifecycle.PENDING -> "PENDING"
                     AgentLifecycle.REVOKED -> "REVOKED"
-                    AgentLifecycle.APPROVED -> severity.pillLabel()
+                    AgentLifecycle.APPROVED -> if (offline) "OFFLINE" else severity.pillLabel()
                 },
                 severity
             )
@@ -216,6 +219,7 @@ private fun HostRow(
         Text(
             text = buildList {
                 add("#${agent.id}")
+                if (offline && latest != null) add("last seen ${formatAgo(latest.createdAt)}")
                 latest?.metrics?.cpu?.coreCount?.takeIf { it > 0 }?.let { add("$it cores") }
                 latest?.metrics?.linux?.let { add("up ${formatUptime(it.uptimeSecs)}") }
                 if (latest == null) add("paired ${formatServerDateTime(agent.createdAt)}")
