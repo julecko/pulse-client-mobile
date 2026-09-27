@@ -15,7 +15,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
@@ -97,8 +96,9 @@ private fun AlertsHeader(state: AlertsUiState) {
         ) {
             Text("ALERTS", style = MaterialTheme.typography.headlineLarge, color = PulseColors.TextPrimary)
             Text(
-                "${state.openCount} OPEN · ${state.ackCount} ACK",
-                fontSize = 10.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 1.sp, color = PulseColors.TextSecondary,
+                "${state.unackCount} UNACK · ${state.ackCount} ACK · ${state.openCount} OPEN",
+                fontSize = 10.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 1.sp,
+                color = if (state.unackCount > 0) PulseColors.Accent else PulseColors.TextSecondary,
                 modifier = Modifier.padding(bottom = 6.dp)
             )
         }
@@ -149,6 +149,7 @@ private fun FilterRow(filter: AlertFilter, onSelect: (AlertFilter) -> Unit) {
         horizontalArrangement = Arrangement.spacedBy(6.dp)
     ) {
         FilterChip("ALL", filter == AlertFilter.ALL) { onSelect(AlertFilter.ALL) }
+        FilterChip("UNACK", filter == AlertFilter.UNACKNOWLEDGED) { onSelect(AlertFilter.UNACKNOWLEDGED) }
         FilterChip("CRIT", filter == AlertFilter.CRITICAL) { onSelect(AlertFilter.CRITICAL) }
         FilterChip("WARN", filter == AlertFilter.WARNING) { onSelect(AlertFilter.WARNING) }
         FilterChip("ACK", filter == AlertFilter.ACKNOWLEDGED) { onSelect(AlertFilter.ACKNOWLEDGED) }
@@ -192,12 +193,22 @@ private fun AlertsList(state: AlertsUiState, vm: AlertsViewModel, onOpenHost: (L
     }
 }
 
+/**
+ * Unacknowledged alerts stand out: raised background, full-strength severity stripe and a filled
+ * "UNACK" tag. Acknowledged ones are dimmed, with an outlined "✓ ACK" tag and who acknowledged them.
+ */
 @Composable
 private fun AlertCard(alert: AlertRecord, state: AlertsUiState, vm: AlertsViewModel, onOpenHost: (Long) -> Unit) {
-    val tint = alert.severityEnum.color()
+    val acked = alert.isAcknowledged
+    val tint = alert.severityEnum.color().let { if (acked) it.copy(alpha = 0.4f) else it }
     val expanded = state.expandedId == alert.id
-    Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min)) {
-        Box(Modifier.fillMaxHeight().width(3.dp).background(tint))
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .height(IntrinsicSize.Min)
+            .background(if (acked) PulseColors.Background else PulseColors.Surface)
+    ) {
+        Box(Modifier.fillMaxHeight().width(if (acked) 3.dp else 5.dp).background(tint))
         Column(
             Modifier
                 .weight(1f)
@@ -210,22 +221,37 @@ private fun AlertCard(alert: AlertRecord, state: AlertsUiState, vm: AlertsViewMo
                     fontSize = 9.5.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 1.sp, color = tint,
                     modifier = Modifier.border(1.dp, tint).padding(horizontal = 5.dp, vertical = 3.dp)
                 )
+                Spacer(Modifier.width(6.dp))
+                AckTag(acked)
                 Spacer(Modifier.width(8.dp))
                 Text(
                     alert.hostname ?: state.hostnameOf(alert.agentId) ?: "fleet-wide",
-                    fontSize = 13.5.sp, fontWeight = FontWeight.ExtraBold, color = PulseColors.TextPrimary,
+                    fontSize = 13.5.sp, fontWeight = FontWeight.ExtraBold,
+                    color = if (acked) PulseColors.TextSecondary else PulseColors.TextPrimary,
                     modifier = Modifier.weight(1f)
                 )
                 Text(formatAgo(alert.triggeredAt), fontSize = 10.sp, color = PulseColors.TextTertiary)
-                if (!alert.isActive) {
-                    Spacer(Modifier.width(6.dp))
-                    Box(Modifier.size(6.dp).background(PulseColors.TextTertiary))
-                }
             }
             Spacer(Modifier.height(7.dp))
-            Text(alert.title, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = PulseColors.TextPrimary)
+            Text(
+                alert.title, fontSize = 14.sp,
+                fontWeight = if (acked) FontWeight.Normal else FontWeight.Bold,
+                color = if (acked) PulseColors.TextSecondary else PulseColors.TextPrimary
+            )
             Spacer(Modifier.height(3.dp))
-            Text(alert.message, fontSize = 11.5.sp, lineHeight = 16.sp, color = PulseColors.TextSecondary)
+            Text(
+                alert.message, fontSize = 11.5.sp, lineHeight = 16.sp,
+                color = if (acked) PulseColors.TextTertiary else PulseColors.TextSecondary
+            )
+            Spacer(Modifier.height(5.dp))
+            Text(
+                buildList {
+                    add(if (alert.isActive) "still active" else "resolved ${alert.resolvedAt?.let(::formatAgo).orEmpty()}".trim())
+                    if (acked) add("acknowledged by ${alert.acknowledgedBy ?: "someone"} ${alert.acknowledgedAt?.let(::formatAgo).orEmpty()}".trim())
+                    else add("not acknowledged")
+                }.joinToString(" · "),
+                fontSize = 10.sp, color = if (acked) PulseColors.TextTertiary else tint
+            )
 
             if (expanded) {
                 Spacer(Modifier.height(10.dp))
@@ -253,6 +279,19 @@ private fun AlertCard(alert: AlertRecord, state: AlertsUiState, vm: AlertsViewMo
         }
     }
     Box(Modifier.fillMaxWidth().height(1.dp).background(PulseColors.Divider))
+}
+
+/** Filled in the accent while an alert still needs acknowledging; outlined and quiet once it's done. */
+@Composable
+private fun AckTag(acked: Boolean) {
+    Text(
+        if (acked) "✓ ACK" else "UNACK",
+        fontSize = 9.5.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = 1.sp,
+        color = if (acked) PulseColors.TextTertiary else PulseColors.AccentOn,
+        modifier = Modifier
+            .then(if (acked) Modifier.border(1.dp, PulseColors.Border) else Modifier.background(PulseColors.Accent))
+            .padding(horizontal = 5.dp, vertical = 3.dp)
+    )
 }
 
 @Composable
