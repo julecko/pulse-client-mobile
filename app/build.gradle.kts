@@ -17,8 +17,10 @@ android {
         applicationId = "sk.dilino.pulseclientmobile"
         minSdk = 24
         targetSdk = 36
-        versionCode = 1
-        versionName = "1.0"
+        // Bump both for every release uploaded to the server (`pulse-server-cli app upload`):
+        // installed apps only update to a higher versionCode.
+        versionCode = 2
+        versionName = "1.1"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

@@ -23,6 +23,7 @@ The app uses the server's user-facing endpoints:
 | `GET/POST /alert-rules`, `PATCH`/`DELETE /alert-rules/{id}` | Alert rule management |
 | `GET /alerts`, `POST /alerts/{id}/acknowledge` | Alert feed |
 | `GET/POST /push-devices`, `DELETE /push-devices/{id}` | This device's push registration |
+| `GET /app-releases/latest`, `GET /app-releases/{version_code}/apk` | Self-update |
 | `POST /auth/logout` | Ends the session on sign out |
 
 On first launch you enter the server address (e.g. `https://10.0.0.5:8443`), a username and a
@@ -79,6 +80,31 @@ lists every device registered for the account and can remove one. This needs:
   are still recorded and shown in the feed, just never pushed.
 - Android 13+ also needs the notification permission, which the app asks for on first launch.
 
+## Updates
+
+The app updates itself from your Pulse server, no app store needed. Build a signed release APK with a
+higher `versionCode` than the installed one (`app/build.gradle.kts`), then upload it on the server:
+
+```sh
+./gradlew assembleRelease
+pulse-server-cli -u alice app upload app/build/outputs/apk/release/app-release.apk \
+    --version-code 2 --version-name 1.1 --notes "What changed"
+```
+
+Whenever the app comes to the foreground (at most every 10 minutes, or right away after the "update
+available" push the upload sends), it asks `GET /app-releases/latest` whether there's a higher version
+code than its own. If so, a banner shows at the top of every screen, and Settings → **APP** shows the
+version, the release notes and the controls. With **auto-update** on (the default) the app installs it
+right away: it downloads the APK, checks its SHA-256 against the server's, checks that it's this app
+with the advertised version code, and installs it with Android's `PackageInstaller`.
+
+- The first time, Android asks you to allow Pulse to install apps (*Install unknown apps*) and to
+  confirm the update. From Android 12 on, later updates install without a prompt, since the app then
+  installed itself.
+- Android only accepts an update signed with the **same key** as the installed app — keep your release
+  keystore safe. A debug build can't update to a release build or vice versa.
+- After an update the app is restarted by Android and posts an "Pulse updated" notification.
+
 ## Building
 
 Requirements: JDK 17+ and the Android SDK (Android Studio installs both).
@@ -97,6 +123,7 @@ Android Studio writes your SDK path to `local.properties`, which is git-ignored.
 app/src/main/java/sk/dilino/pulseclientmobile/
 ├── data/        ConnectionStore (server + credentials), PulseApiClient, JSON models
 ├── push/        FCM messaging service, token registration, notification channel
+├── update/      self-update: check, download, verify, install (PackageInstaller)
 ├── ui/
 │   ├── connect/     first-run server + login
 │   ├── fleet/       host list with live usage bars

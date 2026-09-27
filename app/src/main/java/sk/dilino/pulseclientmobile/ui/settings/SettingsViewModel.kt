@@ -9,9 +9,11 @@ import kotlinx.coroutines.launch
 import sk.dilino.pulseclientmobile.data.Connection
 import sk.dilino.pulseclientmobile.data.ConnectionStore
 import sk.dilino.pulseclientmobile.data.model.AgentSummary
+import sk.dilino.pulseclientmobile.data.model.AppRelease
 import sk.dilino.pulseclientmobile.data.model.PairingStatus
 import sk.dilino.pulseclientmobile.data.model.PushDevice
 import sk.dilino.pulseclientmobile.data.network.PulseApiClient
+import sk.dilino.pulseclientmobile.update.AppUpdater
 
 data class SettingsUiState(
     val serverUrl: String = "",
@@ -128,6 +130,13 @@ class SettingsViewModel(
             loadAgents()
         }
     }
+
+    /** Asks the server for a newer app release now; installing it is left to the user here. */
+    fun checkForUpdate() = AppUpdater.check(api, force = true, autoInstall = false)
+
+    fun installUpdate(release: AppRelease) = AppUpdater.install(api, release)
+
+    fun setAutoUpdate(enabled: Boolean) = AppUpdater.setAutoUpdate(enabled)
 
     /** Ends the server session and forgets the server and credentials; the app returns to the connect screen. */
     fun signOut() {
