@@ -45,6 +45,7 @@ import sk.dilino.pulseclientmobile.data.model.AgentLifecycle
 import sk.dilino.pulseclientmobile.data.model.AuthEventKind
 import sk.dilino.pulseclientmobile.data.model.AuthEventRecord
 import sk.dilino.pulseclientmobile.data.model.MetricsRecord
+import sk.dilino.pulseclientmobile.data.model.NetworkInfo
 import sk.dilino.pulseclientmobile.ui.components.EmptyPlaceholder
 import sk.dilino.pulseclientmobile.ui.components.LineChart
 import sk.dilino.pulseclientmobile.ui.components.Meter
@@ -61,6 +62,7 @@ import sk.dilino.pulseclientmobile.util.diskPercent
 import sk.dilino.pulseclientmobile.util.formatBytes
 import sk.dilino.pulseclientmobile.util.formatClock
 import sk.dilino.pulseclientmobile.util.formatPercent
+import sk.dilino.pulseclientmobile.util.formatRate
 import sk.dilino.pulseclientmobile.util.formatRelative
 import sk.dilino.pulseclientmobile.util.formatServerDateTime
 import sk.dilino.pulseclientmobile.util.formatServerTime
@@ -68,6 +70,8 @@ import sk.dilino.pulseclientmobile.util.formatSigned
 import sk.dilino.pulseclientmobile.util.formatUptime
 import sk.dilino.pulseclientmobile.util.isOffline
 import sk.dilino.pulseclientmobile.util.memPercent
+import sk.dilino.pulseclientmobile.util.netInMbps
+import sk.dilino.pulseclientmobile.util.netOutMbps
 import sk.dilino.pulseclientmobile.util.parseServerMillis
 import sk.dilino.pulseclientmobile.util.severity
 import sk.dilino.pulseclientmobile.util.severityOf
@@ -340,6 +344,8 @@ private fun OverviewTab(state: HostDetailUiState, vm: HostDetailViewModel, onBac
             Rule()
         }
 
+        m.metrics.network?.let { NetworkSection(it, state) }
+
         if (m.metrics.disks.isNotEmpty()) {
             Cap("FILESYSTEMS", Modifier.padding(start = 18.dp, end = 18.dp, top = 14.dp, bottom = 6.dp))
             m.metrics.disks.forEach { d ->
@@ -390,6 +396,55 @@ private fun OverviewTab(state: HostDetailUiState, vm: HostDetailViewModel, onBac
             }
         }
     }
+}
+
+/** Traffic the host is handling right now, its recent history and a per-interface breakdown. */
+@Composable
+private fun NetworkSection(net: NetworkInfo, state: HostDetailUiState) {
+    Column(Modifier.padding(horizontal = 18.dp, vertical = 14.dp)) {
+        Cap("NETWORK")
+        Spacer(Modifier.height(12.dp))
+        Row {
+            Load(formatRate(net.rxBytesPerSec), "IN ↓", Modifier.weight(1f))
+            Load(formatRate(net.txBytesPerSec), "OUT ↑", Modifier.weight(1f))
+        }
+        // History up to the shown snapshot, scaled to its busiest moment.
+        val history = state.snapshots.take(state.shownIndex + 1)
+        val rx = history.map { it.netInMbps ?: 0f }
+        val tx = history.map { it.netOutMbps ?: 0f }
+        val peak = (rx + tx).maxOrNull() ?: 0f
+        if (history.size > 1 && peak > 0f) {
+            Spacer(Modifier.height(12.dp))
+            LineChart(
+                series = listOf(
+                    Series(tx, PulseColors.TextTertiary),
+                    Series(rx, PulseColors.Accent)
+                ),
+                modifier = Modifier.fillMaxWidth().height(56.dp),
+                max = peak,
+                baseline = true
+            )
+            Spacer(Modifier.height(5.dp))
+            Text(
+                "peak ${"%.1f".format(peak)} Mbit/s · in / out",
+                fontSize = 9.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 1.sp, color = PulseColors.TextTertiary
+            )
+        }
+    }
+    net.interfaces.forEach { i ->
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 9.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(i.name, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = PulseColors.TextPrimary, maxLines = 1, modifier = Modifier.weight(1f))
+            Text(
+                "↓ ${formatRate(i.rxBytesPerSec)}  ↑ ${formatRate(i.txBytesPerSec)}",
+                fontSize = 10.5.sp, color = PulseColors.TextSecondary, textAlign = TextAlign.End
+            )
+        }
+        Rule(PulseColors.Divider)
+    }
+    Rule()
 }
 
 /** Limits offered for the offline alert, in seconds; the server takes 60 s to 30 days. */
@@ -626,6 +681,8 @@ private fun SnapshotsTab(state: HostDetailUiState, vm: HostDetailViewModel) {
     DiffRow("MEMORY", ra.memPercent, rb.memPercent, "%")
     DiffRow("DISK", ra.diskPercent, rb.diskPercent, "%")
     DiffRow("LOAD 1M", ra.metrics.linux?.loadAvgOne?.toFloat(), rb.metrics.linux?.loadAvgOne?.toFloat(), "")
+    DiffRow("NET IN Mbit/s", ra.netInMbps, rb.netInMbps, "")
+    DiffRow("NET OUT Mbit/s", ra.netOutMbps, rb.netOutMbps, "")
     DiffRow(
         "SWAP",
         ra.metrics.memory?.takeIf { it.swapTotalBytes > 0 }?.let { it.swapUsedBytes * 100f / it.swapTotalBytes },

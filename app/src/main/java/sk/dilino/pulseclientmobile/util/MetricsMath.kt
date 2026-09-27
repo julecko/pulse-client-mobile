@@ -31,6 +31,10 @@ val MetricsRecord.diskPercent: Float?
         return fixed.maxOfOrNull { it.usedPercent }
     }
 
+/** Network traffic in megabits per second, the unit alert rules use; null if the agent didn't report it. */
+val MetricsRecord.netInMbps: Float? get() = metrics.network?.let { (it.rxBytesPerSec * 8 / 1_000_000).toFloat() }
+val MetricsRecord.netOutMbps: Float? get() = metrics.network?.let { (it.txBytesPerSec * 8 / 1_000_000).toFloat() }
+
 val MetricsRecord.severity: Severity
     get() = worst(severityOf(cpuPercent), severityOf(memPercent), severityOf(diskPercent))
 
@@ -44,6 +48,9 @@ fun formatBytes(bytes: Long): String {
     }
     return if (i == 0) "${bytes} B" else String.format(Locale.US, if (v >= 100) "%.0f %s" else "%.1f %s", v, units[i])
 }
+
+/** Bytes per second as "1.2 MB/s". */
+fun formatRate(bytesPerSec: Double): String = formatBytes(bytesPerSec.toLong().coerceAtLeast(0)) + "/s"
 
 fun formatUptime(secs: Long): String {
     val d = secs / 86400

@@ -69,7 +69,9 @@ data class Metrics(
     val cpu: CpuInfo? = null,
     val memory: MemoryInfo? = null,
     val disks: List<DiskInfo> = emptyList(),
-    val linux: LinuxInfo? = null
+    val linux: LinuxInfo? = null,
+    /** Null for agents too old to report it. */
+    val network: NetworkInfo? = null
 )
 
 @Serializable
@@ -107,6 +109,26 @@ data class LinuxInfo(
     @SerialName("load_avg_five") val loadAvgFive: Double,
     @SerialName("load_avg_fifteen") val loadAvgFifteen: Double,
     @SerialName("uptime_secs") val uptimeSecs: Long
+)
+
+/** Mirrors `protocol::NetworkInfo` — traffic averaged over the time since the previous snapshot. */
+@Serializable
+data class NetworkInfo(
+    /** Received over all [interfaces], bytes per second. */
+    @SerialName("rx_bytes_per_sec") val rxBytesPerSec: Double,
+    /** Transmitted over all [interfaces], bytes per second. */
+    @SerialName("tx_bytes_per_sec") val txBytesPerSec: Double,
+    /** Real interfaces only: loopback and container/VM ones aren't reported. */
+    val interfaces: List<NetworkInterfaceInfo> = emptyList()
+)
+
+@Serializable
+data class NetworkInterfaceInfo(
+    val name: String,
+    @SerialName("rx_bytes_per_sec") val rxBytesPerSec: Double,
+    @SerialName("tx_bytes_per_sec") val txBytesPerSec: Double,
+    @SerialName("total_rx_bytes") val totalRxBytes: Long = 0,
+    @SerialName("total_tx_bytes") val totalTxBytes: Long = 0
 )
 
 /** Mirrors `protocol::UserInfo` — returned by `GET /users/me`. */
@@ -157,7 +179,9 @@ enum class AlertMetric(val wire: String, val label: String, val unit: String) {
     DISK_USED_PERCENT("disk_used_percent", "Disk used (fullest)", "%"),
     LOAD_AVG_ONE("load_avg_one", "Load average, 1 min", ""),
     LOAD_AVG_FIVE("load_avg_five", "Load average, 5 min", ""),
-    LOAD_AVG_FIFTEEN("load_avg_fifteen", "Load average, 15 min", "");
+    LOAD_AVG_FIFTEEN("load_avg_fifteen", "Load average, 15 min", ""),
+    NETWORK_RX_MBPS("network_rx_mbps", "Network in", "Mbit/s"),
+    NETWORK_TX_MBPS("network_tx_mbps", "Network out", "Mbit/s");
 
     companion object {
         fun fromWire(s: String): AlertMetric = entries.firstOrNull { it.wire == s } ?: CPU_USAGE_PERCENT
