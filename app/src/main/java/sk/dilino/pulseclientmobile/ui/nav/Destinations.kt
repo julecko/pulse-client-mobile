@@ -3,9 +3,11 @@ package sk.dilino.pulseclientmobile.ui.nav
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.outlined.Dns
+import androidx.compose.material.icons.outlined.NotificationsNone
 import androidx.compose.ui.graphics.vector.ImageVector
 
 const val ROUTE_FLEET = "fleet"
+const val ROUTE_ALERTS = "alerts"
 const val ROUTE_SETTINGS = "settings"
 const val ROUTE_HOST_DETAIL = "host/{agentId}"
 
@@ -19,5 +21,6 @@ data class TopLevelDestination(
 
 val topLevelDestinations = listOf(
     TopLevelDestination(ROUTE_FLEET, "FLEET", Icons.Outlined.Dns),
+    TopLevelDestination(ROUTE_ALERTS, "ALERTS", Icons.Outlined.NotificationsNone),
     TopLevelDestination(ROUTE_SETTINGS, "SETTINGS", Icons.Filled.Tune)
 )

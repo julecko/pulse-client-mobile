@@ -112,6 +112,7 @@ class HostDetailViewModel(
 
     fun approve() = runAction { api.approveAgent(agentId) }
     fun revoke() = runAction { api.revokeAgent(agentId) }
+    fun unrevoke() = runAction { api.unrevokeAgent(agentId) }
     fun remove(onRemoved: () -> Unit) = runAction(onDone = onRemoved) { api.removeAgent(agentId) }
 
     private fun runAction(onDone: (() -> Unit)? = null, action: suspend () -> Result<Unit>) {

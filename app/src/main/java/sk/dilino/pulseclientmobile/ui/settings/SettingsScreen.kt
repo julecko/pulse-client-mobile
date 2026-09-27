@@ -31,6 +31,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import sk.dilino.pulseclientmobile.data.model.AgentLifecycle
 import sk.dilino.pulseclientmobile.data.model.AgentSummary
 import sk.dilino.pulseclientmobile.data.model.PairingStatus
+import sk.dilino.pulseclientmobile.data.model.PushDevice
 import sk.dilino.pulseclientmobile.ui.components.SectionLabel
 import sk.dilino.pulseclientmobile.ui.components.Severity
 import sk.dilino.pulseclientmobile.ui.components.SeverityMarker
@@ -68,6 +69,8 @@ fun SettingsScreen(viewModel: SettingsViewModel, onOpenHost: (Long) -> Unit = {}
             PairingSection(state, viewModel)
             Divider()
             HostsSection(state, viewModel, onOpenHost)
+            Divider()
+            NotificationsSection(state, viewModel)
             Divider()
             AccountSection(viewModel)
             Text(
@@ -250,7 +253,7 @@ private fun HostRow(agent: AgentSummary, state: SettingsUiState, vm: SettingsVie
             when (agent.lifecycle) {
                 AgentLifecycle.PENDING -> Chip(if (busy) "…" else "APPROVE", primary = true, enabled = !busy) { vm.approve(agent.id) }
                 AgentLifecycle.APPROVED -> Chip(if (busy) "…" else "REVOKE", tint = PulseColors.Warning, enabled = !busy) { vm.revoke(agent.id) }
-                AgentLifecycle.REVOKED -> Unit
+                AgentLifecycle.REVOKED -> Chip(if (busy) "…" else "UNREVOKE", tint = PulseColors.Warning, enabled = !busy) { vm.unrevoke(agent.id) }
             }
             if (confirming) {
                 Chip("CONFIRM REMOVE", primary = true, enabled = !busy) { vm.requestRemove(agent.id) }
@@ -268,10 +271,52 @@ private fun HostRow(agent: AgentSummary, state: SettingsUiState, vm: SettingsVie
         } else if (agent.lifecycle == AgentLifecycle.REVOKED) {
             Spacer(Modifier.height(6.dp))
             Text(
-                "A revoked agent can't be approved again. Remove it, then run pulse-agentd reset-identity on the host to pair it anew.",
+                "Unrevoke only if you're sure its secret never leaked — anyone with a copy gets access back too. Otherwise remove it and run pulse-agent-cli reset-identity on the host to pair it anew.",
                 fontSize = 11.sp, lineHeight = 16.sp, color = PulseColors.TextTertiary
             )
         }
+    }
+    Box(Modifier.fillMaxWidth().height(1.dp).background(PulseColors.Divider))
+}
+
+// ---------------------------------------------------------------- notifications
+
+@Composable
+private fun NotificationsSection(state: SettingsUiState, vm: SettingsViewModel) {
+    Section("NOTIFICATIONS") {
+        Text(
+            "Devices registered to receive alert pushes. This device registers itself automatically once you're signed in and have notified rules with push on.",
+            fontSize = 11.5.sp, lineHeight = 17.sp, color = PulseColors.TextSecondary
+        )
+        Spacer(Modifier.height(12.dp))
+        when {
+            !state.pushDevicesLoaded -> Text("Loading…", fontSize = 12.sp, color = PulseColors.TextTertiary)
+            state.pushDevices.isEmpty() -> Text(
+                state.pushDevicesError ?: "No devices registered yet.",
+                fontSize = 12.sp, lineHeight = 17.sp,
+                color = if (state.pushDevicesError != null) PulseColors.Accent else PulseColors.TextTertiary
+            )
+            else -> state.pushDevices.forEach { device -> PushDeviceRow(device, state, vm) }
+        }
+    }
+}
+
+@Composable
+private fun PushDeviceRow(device: PushDevice, state: SettingsUiState, vm: SettingsViewModel) {
+    val busy = state.busyDeviceId == device.id
+    Row(
+        Modifier.fillMaxWidth().padding(vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text(device.name ?: "Unnamed device", fontSize = 12.5.sp, fontWeight = FontWeight.SemiBold, color = PulseColors.TextPrimary)
+            Spacer(Modifier.height(2.dp))
+            Text(
+                "${device.username} · last seen ${formatServerDateTime(device.lastSeenAt)}",
+                fontSize = 10.sp, color = PulseColors.TextTertiary
+            )
+        }
+        Chip(if (busy) "…" else "REMOVE", tint = PulseColors.Accent, enabled = !busy) { vm.removePushDevice(device.id) }
     }
     Box(Modifier.fillMaxWidth().height(1.dp).background(PulseColors.Divider))
 }

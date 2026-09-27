@@ -187,7 +187,7 @@ fun ConnectScreen(
         }
         Spacer(Modifier.height(4.dp))
         Text(
-            text = "Credentials are stored on this device. Read-only fleet + auth log. Alerts and console aren't implemented on the server yet.",
+            text = "Credentials are stored on this device. Read-only fleet + auth log, with alert rules and push notifications.",
             style = MaterialTheme.typography.bodyMedium,
             color = PulseColors.TextTertiary,
             modifier = Modifier.padding(top = 16.dp)

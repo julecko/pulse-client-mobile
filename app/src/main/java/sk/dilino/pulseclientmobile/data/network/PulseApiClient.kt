@@ -10,12 +10,19 @@ import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
 import sk.dilino.pulseclientmobile.data.model.AgentSummary
+import sk.dilino.pulseclientmobile.data.model.AlertRecord
+import sk.dilino.pulseclientmobile.data.model.AlertRule
 import sk.dilino.pulseclientmobile.data.model.AuthEventRecord
 import sk.dilino.pulseclientmobile.data.model.LoginRequest
 import sk.dilino.pulseclientmobile.data.model.LoginResponse
 import sk.dilino.pulseclientmobile.data.model.MetricsRecord
+import sk.dilino.pulseclientmobile.data.model.NewAlertRule
 import sk.dilino.pulseclientmobile.data.model.PairingStatus
+import sk.dilino.pulseclientmobile.data.model.PushDevice
+import sk.dilino.pulseclientmobile.data.model.RegisterPushDevice
 import sk.dilino.pulseclientmobile.data.model.SetPairingRequest
+import sk.dilino.pulseclientmobile.data.model.UpdateAlertRule
+import sk.dilino.pulseclientmobile.data.model.UserInfo
 
 private val json = Json {
     ignoreUnknownKeys = true
@@ -173,6 +180,21 @@ class PulseApiClient(
         }
     }
 
+    /** Undoes a revoke: the agent's existing secret is trusted again. Only agents that are actually revoked can be unrevoked. */
+    suspend fun unrevokeAgent(agentId: Long): Result<Unit> = withContext(Dispatchers.IO) {
+        runCatching {
+            authed("/agents/$agentId/unrevoke", { post("".toRequestBody(JSON_MEDIA)) }) { }
+        }
+    }
+
+    suspend fun me(): Result<UserInfo> = withContext(Dispatchers.IO) {
+        runCatching {
+            authed("/users/me") { response ->
+                json.decodeFromString<UserInfo>(response.body?.string().orEmpty())
+            }
+        }
+    }
+
     suspend fun pairingStatus(): Result<PairingStatus> = withContext(Dispatchers.IO) {
         runCatching {
             authed("/agents/pairing") { response ->
@@ -188,6 +210,91 @@ class PulseApiClient(
             authed("/agents/pairing", { put(body.toRequestBody(JSON_MEDIA)) }) { response ->
                 json.decodeFromString<PairingStatus>(response.body?.string().orEmpty())
             }
+        }
+    }
+
+    // ------------------------------------------------------------ alert rules
+
+    suspend fun alertRules(): Result<List<AlertRule>> = withContext(Dispatchers.IO) {
+        runCatching {
+            authed("/alert-rules") { response ->
+                json.decodeFromString<List<AlertRule>>(response.body?.string().orEmpty())
+            }
+        }
+    }
+
+    suspend fun createAlertRule(rule: NewAlertRule): Result<AlertRule> = withContext(Dispatchers.IO) {
+        runCatching {
+            val body = json.encodeToString(rule)
+            authed("/alert-rules", { post(body.toRequestBody(JSON_MEDIA)) }) { response ->
+                json.decodeFromString<AlertRule>(response.body?.string().orEmpty())
+            }
+        }
+    }
+
+    /** Enables/disables a rule and/or toggles its push notifications; unset fields stay as they are. */
+    suspend fun updateAlertRule(ruleId: Long, enabled: Boolean? = null, notify: Boolean? = null): Result<AlertRule> =
+        withContext(Dispatchers.IO) {
+            runCatching {
+                val body = json.encodeToString(UpdateAlertRule(enabled, notify))
+                authed("/alert-rules/$ruleId", { patch(body.toRequestBody(JSON_MEDIA)) }) { response ->
+                    json.decodeFromString<AlertRule>(response.body?.string().orEmpty())
+                }
+            }
+        }
+
+    suspend fun deleteAlertRule(ruleId: Long): Result<Unit> = withContext(Dispatchers.IO) {
+        runCatching {
+            authed("/alert-rules/$ruleId", { delete() }) { }
+        }
+    }
+
+    // ------------------------------------------------------------ alerts
+
+    /** Most recent alerts, newest first. [agentId] and [activeOnly] filter server-side. */
+    suspend fun alerts(agentId: Long? = null, activeOnly: Boolean = false, limit: Int = 50): Result<List<AlertRecord>> =
+        withContext(Dispatchers.IO) {
+            runCatching {
+                val query = buildString {
+                    append("?limit=$limit")
+                    if (agentId != null) append("&agent_id=$agentId")
+                    if (activeOnly) append("&active=true")
+                }
+                authed("/alerts$query") { response ->
+                    json.decodeFromString<List<AlertRecord>>(response.body?.string().orEmpty())
+                }
+            }
+        }
+
+    suspend fun acknowledgeAlert(alertId: Long): Result<Unit> = withContext(Dispatchers.IO) {
+        runCatching {
+            authed("/alerts/$alertId/acknowledge", { post("".toRequestBody(JSON_MEDIA)) }) { }
+        }
+    }
+
+    // ------------------------------------------------------------ push devices
+
+    suspend fun pushDevices(): Result<List<PushDevice>> = withContext(Dispatchers.IO) {
+        runCatching {
+            authed("/push-devices") { response ->
+                json.decodeFromString<List<PushDevice>>(response.body?.string().orEmpty())
+            }
+        }
+    }
+
+    /** Registers this device's FCM token, or refreshes it if already known. */
+    suspend fun registerPushDevice(token: String, name: String? = null): Result<PushDevice> = withContext(Dispatchers.IO) {
+        runCatching {
+            val body = json.encodeToString(RegisterPushDevice(token = token, name = name))
+            authed("/push-devices", { post(body.toRequestBody(JSON_MEDIA)) }) { response ->
+                json.decodeFromString<PushDevice>(response.body?.string().orEmpty())
+            }
+        }
+    }
+
+    suspend fun removePushDevice(deviceId: Long): Result<Unit> = withContext(Dispatchers.IO) {
+        runCatching {
+            authed("/push-devices/$deviceId", { delete() }) { }
         }
     }
 }

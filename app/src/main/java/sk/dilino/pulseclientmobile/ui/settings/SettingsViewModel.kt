@@ -10,6 +10,7 @@ import sk.dilino.pulseclientmobile.data.Connection
 import sk.dilino.pulseclientmobile.data.ConnectionStore
 import sk.dilino.pulseclientmobile.data.model.AgentSummary
 import sk.dilino.pulseclientmobile.data.model.PairingStatus
+import sk.dilino.pulseclientmobile.data.model.PushDevice
 import sk.dilino.pulseclientmobile.data.network.PulseApiClient
 
 data class SettingsUiState(
@@ -28,7 +29,12 @@ data class SettingsUiState(
     val busyAgentId: Long? = null,
     /** Agent whose removal awaits a second tap; removing is permanent, so it's a two-step action. */
     val confirmRemoveId: Long? = null,
-    val agentActionError: String? = null
+    val agentActionError: String? = null,
+
+    val pushDevices: List<PushDevice> = emptyList(),
+    val pushDevicesLoaded: Boolean = false,
+    val pushDevicesError: String? = null,
+    val busyDeviceId: Long? = null
 )
 
 class SettingsViewModel(
@@ -56,6 +62,7 @@ class SettingsViewModel(
                 .onSuccess { p -> _uiState.update { it.copy(pairing = p, pairingError = null) } }
                 .onFailure { e -> _uiState.update { it.copy(pairingError = e.message ?: "Couldn't load pairing status") } }
             loadAgents()
+            loadPushDevices()
         }
     }
 
@@ -63,6 +70,21 @@ class SettingsViewModel(
         api.listAgents()
             .onSuccess { list -> _uiState.update { it.copy(agents = list, agentsLoaded = true, agentsError = null) } }
             .onFailure { e -> _uiState.update { it.copy(agentsLoaded = true, agentsError = e.message ?: "Couldn't load hosts") } }
+    }
+
+    private suspend fun loadPushDevices() {
+        api.pushDevices()
+            .onSuccess { list -> _uiState.update { it.copy(pushDevices = list, pushDevicesLoaded = true, pushDevicesError = null) } }
+            .onFailure { e -> _uiState.update { it.copy(pushDevicesLoaded = true, pushDevicesError = e.message ?: "Couldn't load devices") } }
+    }
+
+    fun removePushDevice(deviceId: Long) {
+        viewModelScope.launch {
+            _uiState.update { it.copy(busyDeviceId = deviceId) }
+            api.removePushDevice(deviceId)
+            _uiState.update { it.copy(busyDeviceId = null) }
+            loadPushDevices()
+        }
     }
 
     /** Opens the pairing window (for [minutes], or until closed when null) or closes it. */
@@ -78,6 +100,8 @@ class SettingsViewModel(
     fun approve(agentId: Long) = agentAction(agentId) { api.approveAgent(agentId) }
 
     fun revoke(agentId: Long) = agentAction(agentId) { api.revokeAgent(agentId) }
+
+    fun unrevoke(agentId: Long) = agentAction(agentId) { api.unrevokeAgent(agentId) }
 
     /** First tap arms the removal; the second confirms it. */
     fun requestRemove(agentId: Long) {

@@ -4,4 +4,5 @@
     <color name="pulse_red">#E5493F</color>
     <color name="white">#FFFFFFFF</color>
     <color name="black">#FF000000</color>
+    <color name="notification_accent">#FF563C</color>
 </resources>

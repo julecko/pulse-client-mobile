@@ -1,3 +1,5 @@
 <resources>
     <string name="app_name">Pulse</string>
+    <string name="alert_notification_channel_id">alerts</string>
+    <string name="alert_notification_channel_name">Alerts</string>
 </resources>

@@ -109,6 +109,14 @@ data class LinuxInfo(
     @SerialName("uptime_secs") val uptimeSecs: Long
 )
 
+/** Mirrors `protocol::UserInfo` — returned by `GET /users/me`. */
+@Serializable
+data class UserInfo(
+    val id: Long,
+    val username: String,
+    @SerialName("created_at") val createdAt: String
+)
+
 /** Mirrors `protocol::PairingStatus` — returned by `GET/PUT /agents/pairing`. */
 @Serializable
 data class PairingStatus(
@@ -122,3 +130,130 @@ data class PairingStatus(
 /** Mirrors `protocol::SetPairingRequest` — sent to `PUT /agents/pairing`. */
 @Serializable
 data class SetPairingRequest(val open: Boolean, val minutes: Int? = null)
+
+// ---------------------------------------------------------------- alerts
+
+/** Mirrors `protocol::AlertMetric` — a value an [AlertRule] compares against a threshold. */
+enum class AlertMetric(val wire: String, val label: String, val unit: String) {
+    CPU_USAGE_PERCENT("cpu_usage_percent", "CPU usage", "%"),
+    MEMORY_USED_PERCENT("memory_used_percent", "Memory used", "%"),
+    SWAP_USED_PERCENT("swap_used_percent", "Swap used", "%"),
+    DISK_USED_PERCENT("disk_used_percent", "Disk used (fullest)", "%"),
+    LOAD_AVG_ONE("load_avg_one", "Load average, 1 min", ""),
+    LOAD_AVG_FIVE("load_avg_five", "Load average, 5 min", ""),
+    LOAD_AVG_FIFTEEN("load_avg_fifteen", "Load average, 15 min", "");
+
+    companion object {
+        fun fromWire(s: String): AlertMetric = entries.firstOrNull { it.wire == s } ?: CPU_USAGE_PERCENT
+    }
+}
+
+/** Mirrors `protocol::AlertOperator` — JSON is the symbol itself (">", ">=", "<", "<="). */
+enum class AlertOperator(val wire: String, val symbol: String) {
+    GT(">", ">"),
+    GE(">=", "≥"),
+    LT("<", "<"),
+    LE("<=", "≤");
+
+    companion object {
+        fun fromWire(s: String): AlertOperator = entries.firstOrNull { it.wire == s } ?: GT
+    }
+}
+
+/** Mirrors `protocol::AlertSeverity`. */
+enum class AlertSeverity(val wire: String, val label: String) {
+    INFO("info", "INFO"),
+    WARNING("warning", "WARNING"),
+    CRITICAL("critical", "CRITICAL");
+
+    companion object {
+        fun fromWire(s: String): AlertSeverity = entries.firstOrNull { it.wire == s } ?: WARNING
+    }
+}
+
+/** Mirrors `protocol::AlertRule` — returned by `GET/POST /alert-rules` and `PATCH /alert-rules/{id}`. */
+@Serializable
+data class AlertRule(
+    val id: Long,
+    val name: String,
+    /** The agent this rule watches; null = every agent. */
+    @SerialName("agent_id") val agentId: Long? = null,
+    val metric: String,
+    val operator: String,
+    val threshold: Double,
+    @SerialName("duration_secs") val durationSecs: Int = 0,
+    val severity: String = "warning",
+    val notify: Boolean = false,
+    val enabled: Boolean = true,
+    @SerialName("created_by") val createdBy: String? = null,
+    @SerialName("created_at") val createdAt: String = "",
+    @SerialName("updated_at") val updatedAt: String = ""
+) {
+    val metricEnum: AlertMetric get() = AlertMetric.fromWire(metric)
+    val operatorEnum: AlertOperator get() = AlertOperator.fromWire(operator)
+    val severityEnum: AlertSeverity get() = AlertSeverity.fromWire(severity)
+}
+
+/** Mirrors `protocol::NewAlertRule` — sent to `POST /alert-rules`. */
+@Serializable
+data class NewAlertRule(
+    val name: String,
+    @SerialName("agent_id") val agentId: Long? = null,
+    val metric: String,
+    val operator: String,
+    val threshold: Double,
+    @SerialName("duration_secs") val durationSecs: Int = 0,
+    val severity: String = "warning",
+    val notify: Boolean = false
+)
+
+/** Mirrors `protocol::UpdateAlertRule` — sent to `PATCH /alert-rules/{id}`; unset fields stay as they are. */
+@Serializable
+data class UpdateAlertRule(val enabled: Boolean? = null, val notify: Boolean? = null)
+
+/** Mirrors `protocol::AlertRecord` — returned by `GET /alerts`, newest first. */
+@Serializable
+data class AlertRecord(
+    val id: Long,
+    /** Null once the rule that raised it has been deleted. */
+    @SerialName("rule_id") val ruleId: Long? = null,
+    @SerialName("agent_id") val agentId: Long? = null,
+    /** The agent's current hostname; null if this alert isn't about one agent. */
+    val hostname: String? = null,
+    val severity: String,
+    val title: String,
+    val message: String,
+    @SerialName("triggered_at") val triggeredAt: String,
+    /** Null while the condition still holds. */
+    @SerialName("resolved_at") val resolvedAt: String? = null,
+    @SerialName("acknowledged_at") val acknowledgedAt: String? = null,
+    @SerialName("acknowledged_by") val acknowledgedBy: String? = null
+) {
+    val severityEnum: AlertSeverity get() = AlertSeverity.fromWire(severity)
+    val isActive: Boolean get() = resolvedAt == null
+    val isAcknowledged: Boolean get() = acknowledgedAt != null
+}
+
+// ---------------------------------------------------------------- push devices
+
+/** Mirrors `protocol::PushPlatform`. This app only ever registers `ANDROID`. */
+enum class PushPlatform(val wire: String) { ANDROID("android"), IOS("ios") }
+
+/** Mirrors `protocol::RegisterPushDevice` — sent to `POST /push-devices`. */
+@Serializable
+data class RegisterPushDevice(
+    val token: String,
+    val platform: String = PushPlatform.ANDROID.wire,
+    val name: String? = null
+)
+
+/** Mirrors `protocol::PushDevice` — returned by `GET/POST /push-devices`. The token itself is never sent back. */
+@Serializable
+data class PushDevice(
+    val id: Long,
+    val username: String,
+    val platform: String,
+    val name: String? = null,
+    @SerialName("created_at") val createdAt: String,
+    @SerialName("last_seen_at") val lastSeenAt: String
+)

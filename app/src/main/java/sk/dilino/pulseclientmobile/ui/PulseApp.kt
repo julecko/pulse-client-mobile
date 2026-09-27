@@ -1,5 +1,6 @@
 package sk.dilino.pulseclientmobile.ui
 
+import android.os.Build
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
@@ -16,6 +17,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.remember
@@ -34,15 +36,20 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import com.google.firebase.messaging.FirebaseMessaging
+import kotlinx.coroutines.suspendCancellableCoroutine
 import sk.dilino.pulseclientmobile.data.Connection
 import sk.dilino.pulseclientmobile.data.ConnectionStore
 import sk.dilino.pulseclientmobile.data.network.PulseApiClient
+import sk.dilino.pulseclientmobile.ui.alerts.AlertsScreen
+import sk.dilino.pulseclientmobile.ui.alerts.AlertsViewModel
 import sk.dilino.pulseclientmobile.ui.connect.ConnectScreen
 import sk.dilino.pulseclientmobile.ui.connect.ConnectViewModel
 import sk.dilino.pulseclientmobile.ui.fleet.FleetScreen
 import sk.dilino.pulseclientmobile.ui.fleet.FleetViewModel
 import sk.dilino.pulseclientmobile.ui.host.HostDetailScreen
 import sk.dilino.pulseclientmobile.ui.host.HostDetailViewModel
+import sk.dilino.pulseclientmobile.ui.nav.ROUTE_ALERTS
 import sk.dilino.pulseclientmobile.ui.nav.ROUTE_FLEET
 import sk.dilino.pulseclientmobile.ui.nav.ROUTE_HOST_DETAIL
 import sk.dilino.pulseclientmobile.ui.nav.ROUTE_SETTINGS
@@ -53,7 +60,7 @@ import sk.dilino.pulseclientmobile.ui.settings.SettingsViewModel
 import sk.dilino.pulseclientmobile.ui.theme.PulseColors
 
 @Composable
-fun PulseApp(connectionStore: ConnectionStore) {
+fun PulseApp(connectionStore: ConnectionStore, openAlertsRequest: Int = 0) {
     val connection by connectionStore.connection.collectAsStateWithLifecycle(initialValue = null)
 
     if (connection == null) {
@@ -68,19 +75,29 @@ fun PulseApp(connectionStore: ConnectionStore) {
         // screens holding a stale PulseApiClient for the old server.
         key(current) {
             val api = remember(current) { PulseApiClient(current.baseUrl, current.username, current.password, current.pinnedCertSha256) }
+            LaunchedEffect(current) { registerFcmToken(api) }
             CompositionLocalProvider(
                 LocalPulseApi provides api,
                 LocalConnectionStore provides connectionStore
             ) {
-                MainScaffold(current = current)
+                MainScaffold(current = current, openAlertsRequest = openAlertsRequest)
             }
         }
     }
 }
 
 @Composable
-private fun MainScaffold(current: Connection) {
+private fun MainScaffold(current: Connection, openAlertsRequest: Int) {
     val navController = rememberNavController()
+
+    LaunchedEffect(openAlertsRequest) {
+        if (openAlertsRequest > 0) {
+            navController.navigate(ROUTE_ALERTS) {
+                popUpTo(navController.graph.findStartDestination().id)
+                launchSingleTop = true
+            }
+        }
+    }
 
     Scaffold(
         containerColor = PulseColors.Background,
@@ -100,6 +117,11 @@ private fun MainScaffold(current: Connection) {
                     viewModel = vm,
                     onOpenAgent = { id -> navController.navigate(hostDetailRoute(id)) }
                 )
+            }
+            composable(ROUTE_ALERTS) {
+                val api = LocalPulseApi.current
+                val vm: AlertsViewModel = viewModel(factory = viewModelFactory { initializer { AlertsViewModel(api) } })
+                AlertsScreen(viewModel = vm, onOpenHost = { id -> navController.navigate(hostDetailRoute(id)) })
             }
             composable(ROUTE_SETTINGS) {
                 val connectionStore = LocalConnectionStore.current
@@ -122,6 +144,16 @@ private fun MainScaffold(current: Connection) {
             }
         }
     }
+}
+
+/** Registers this device's FCM token with the just-connected server, so it can receive alert pushes. */
+private suspend fun registerFcmToken(api: PulseApiClient) {
+    val token = suspendCancellableCoroutine<String?> { cont ->
+        FirebaseMessaging.getInstance().token
+            .addOnSuccessListener { cont.resumeWith(Result.success(it)) }
+            .addOnFailureListener { cont.resumeWith(Result.success(null)) }
+    } ?: return
+    api.registerPushDevice(token, "${Build.MANUFACTURER} ${Build.MODEL}")
 }
 
 @Composable

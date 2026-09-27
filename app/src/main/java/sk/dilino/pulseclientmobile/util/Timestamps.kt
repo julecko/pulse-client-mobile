@@ -9,3 +9,15 @@ fun formatServerDateTime(raw: String): String {
 
 fun formatServerTime(raw: String): String =
     raw.split(" ").getOrNull(1)?.take(5) ?: raw
+
+/** "just now" / "22m ago" / "3h ago" / "5d ago", for a server UTC timestamp relative to now. */
+fun formatAgo(raw: String): String {
+    val then = parseServerMillis(raw) ?: return raw
+    val mins = (System.currentTimeMillis() - then) / 60_000
+    return when {
+        mins < 1 -> "just now"
+        mins < 60 -> "${mins}m ago"
+        mins < 1440 -> "${mins / 60}h ago"
+        else -> "${mins / 1440}d ago"
+    }
+}
