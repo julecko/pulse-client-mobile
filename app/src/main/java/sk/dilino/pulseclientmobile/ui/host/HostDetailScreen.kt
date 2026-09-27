@@ -93,7 +93,7 @@ fun HostDetailScreen(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Icon(Icons.Filled.ChevronLeft, contentDescription = "Back", tint = PulseColors.Accent, modifier = Modifier.size(18.dp))
-            Text("FLEET", fontSize = 11.5.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 1.sp, color = PulseColors.Accent)
+            Text("PULSE", fontSize = 11.5.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 1.sp, color = PulseColors.Accent)
         }
 
         if (agent == null) {

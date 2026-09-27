@@ -165,7 +165,7 @@ private fun PulseBottomBar(navController: NavHostController) {
         Box(Modifier.fillMaxWidth().height(2.dp).background(PulseColors.Border))
         Row(Modifier.fillMaxWidth().navigationBarsPadding()) {
             topLevelDestinations.forEach { destination ->
-                // Host detail counts as part of the Fleet tab.
+                // Host detail counts as part of the Pulse (host list) tab.
                 val selected = currentRoute == destination.route ||
                     (destination.route == ROUTE_FLEET && currentRoute == ROUTE_HOST_DETAIL)
                 val tint = if (selected) PulseColors.Accent else PulseColors.TextTertiary

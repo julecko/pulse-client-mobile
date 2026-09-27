@@ -82,7 +82,7 @@ fun FleetScreen(
             when {
                 state.error != null && state.agents.isEmpty() -> EmptyPlaceholder(
                     icon = Icons.Outlined.Dns,
-                    title = "Can't reach the fleet",
+                    title = "Can't reach the server",
                     message = state.error.orEmpty()
                 )
                 state.agents.isEmpty() && !state.isLoading -> EmptyPlaceholder(
@@ -132,7 +132,7 @@ private fun FleetHeader(state: FleetUiState) {
             verticalAlignment = Alignment.Bottom
         ) {
             Text(
-                text = "FLEET",
+                text = "PULSE",
                 style = MaterialTheme.typography.headlineLarge,
                 color = PulseColors.TextPrimary
             )

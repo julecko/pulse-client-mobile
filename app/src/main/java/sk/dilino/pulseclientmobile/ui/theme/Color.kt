@@ -2,7 +2,7 @@ package sk.dilino.pulseclientmobile.ui.theme
 
 import androidx.compose.ui.graphics.Color
 
-// "Sentry" design palette — mono ink on ink; red only where something is wrong.
+// Pulse design palette — mono ink on ink; red only where something is wrong.
 object PulseColors {
     val Background = Color(0xFF0D0C0C)
     val Surface = Color(0xFF141312)

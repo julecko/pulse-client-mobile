@@ -20,7 +20,7 @@ data class TopLevelDestination(
 )
 
 val topLevelDestinations = listOf(
-    TopLevelDestination(ROUTE_FLEET, "FLEET", Icons.Outlined.Dns),
+    TopLevelDestination(ROUTE_FLEET, "PULSE", Icons.Outlined.Dns),
     TopLevelDestination(ROUTE_ALERTS, "ALERTS", Icons.Outlined.NotificationsNone),
     TopLevelDestination(ROUTE_SETTINGS, "SETTINGS", Icons.Filled.Tune)
 )

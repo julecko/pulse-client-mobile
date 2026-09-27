@@ -79,7 +79,7 @@ class FleetViewModel(private val api: PulseApiClient) : ViewModel() {
                     isLoading = false,
                     isRefreshing = false,
                     isReachable = reachable,
-                    error = agentsResult.exceptionOrNull()?.message ?: "Failed to load fleet"
+                    error = agentsResult.exceptionOrNull()?.message ?: "Failed to load hosts"
                 )
             }
             return

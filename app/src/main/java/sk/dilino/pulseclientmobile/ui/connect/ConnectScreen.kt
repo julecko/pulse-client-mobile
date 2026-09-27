@@ -57,7 +57,7 @@ fun ConnectScreen(
         )
         Spacer(Modifier.height(8.dp))
         Text(
-            text = "Connect to your fleet.",
+            text = "Connect to your Pulse server.",
             style = MaterialTheme.typography.headlineLarge,
             color = PulseColors.TextPrimary
         )
@@ -187,7 +187,7 @@ fun ConnectScreen(
         }
         Spacer(Modifier.height(4.dp))
         Text(
-            text = "Credentials are stored on this device. Read-only fleet + auth log, with alert rules and push notifications.",
+            text = "Credentials are stored on this device. Hosts, metrics and auth log, with alerts and push notifications.",
             style = MaterialTheme.typography.bodyMedium,
             color = PulseColors.TextTertiary,
             modifier = Modifier.padding(top = 16.dp)

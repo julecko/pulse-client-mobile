@@ -216,7 +216,7 @@ private fun AlertCard(alert: AlertRecord, state: AlertsUiState, vm: AlertsViewMo
                 )
                 Spacer(Modifier.width(8.dp))
                 Text(
-                    alert.hostname ?: state.hostnameOf(alert.agentId) ?: "fleet-wide",
+                    alert.hostname ?: state.hostnameOf(alert.agentId) ?: "all hosts",
                     fontSize = 13.5.sp, fontWeight = FontWeight.ExtraBold, color = PulseColors.TextPrimary,
                     modifier = Modifier.weight(1f)
                 )

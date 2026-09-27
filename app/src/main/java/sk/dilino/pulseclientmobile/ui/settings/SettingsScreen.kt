@@ -79,7 +79,7 @@ fun SettingsScreen(viewModel: SettingsViewModel, onOpenHost: (Long) -> Unit = {}
             Divider()
             AccountSection(viewModel)
             Text(
-                text = "Sentry · read-only fleet monitor",
+                text = "Pulse · server monitor",
                 fontSize = 10.5.sp,
                 color = PulseColors.TextTertiary,
                 modifier = Modifier.padding(horizontal = 18.dp, vertical = 8.dp)

@@ -1,7 +1,7 @@
 # Pulse Client Mobile
 
-Android client ("Sentry") for the [pulse](https://github.com/julecko/pulse) server monitor. It is a
-mostly read-only fleet view: hosts, live CPU / memory / disk / load, a 24-snapshot-style timeline you
+Android client for the [pulse](https://github.com/julecko/pulse) server monitor. It is a
+mostly read-only view of your hosts, live CPU / memory / disk / load, a 24-snapshot-style timeline you
 can scrub, snapshot comparison, and each host's auth log. Pairing agents can be approved, revoked and
 removed from the app. Alert rules can be created and managed from the app, alerts fired by the server
 show up in an Alerts feed and can be acknowledged, and the device can register for push notifications.
@@ -76,7 +76,7 @@ The **Alerts** tab has two sub-tabs:
   one. Below the rules:
   - **Offline alerts** — per approved host, how long it may go without sending metrics before the
     server raises a critical alert (off, 2 min … 1 day). Hosts that are offline right now are marked,
-    here and in the fleet list.
+    here and in the host list.
   - **Geo alerts** — the countries SSH logins may come from, whether failed logins count, and whether
     geo alerts are pushed. Changes are sent together on SAVE, since the server replaces them all at
     once. Shows which GeoIP database the server loaded, or warns that none is (then nothing is checked).
@@ -123,12 +123,12 @@ app/src/main/java/sk/dilino/pulseclientmobile/
 ├── push/        FCM messaging service, token registration, notification channel
 ├── ui/
 │   ├── connect/     first-run server + login
-│   ├── fleet/       host list with live usage bars
+│   ├── fleet/       PULSE tab: host list with live usage bars
 │   ├── host/        host detail: timeline, overview, CPU, auth, snapshots
 │   ├── alerts/      alert feed + alert rule management
 │   ├── settings/    server address, hosts, notification devices, sign out
 │   ├── components/  severity markers, meters, charts
-│   └── theme/       Sentry palette and type
+│   └── theme/       Pulse palette and type
 └── util/        timestamp and metric helpers
 ```
 
