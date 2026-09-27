@@ -21,22 +21,36 @@ import sk.dilino.pulseclientmobile.data.ConnectionStore
 import sk.dilino.pulseclientmobile.data.network.PulseApiClient
 
 const val NOTIFICATION_CHANNEL_ID = "alerts"
+/** Plain pushes that aren't alerts: PAM login events and `pulse-agent-cli notify` messages. */
+const val HOST_NOTIFICATION_CHANNEL_ID = "host_notifications"
 const val EXTRA_OPEN_ALERTS = "open_alerts"
 
-/** Ensures the alerts notification channel exists; safe to call repeatedly. */
+/** Ensures the notification channels exist; safe to call repeatedly. */
 fun ensureAlertChannel(context: Context) {
-    val channel = NotificationChannel(
-        NOTIFICATION_CHANNEL_ID,
-        context.getString(R.string.alert_notification_channel_name),
-        NotificationManager.IMPORTANCE_HIGH
+    val manager = context.getSystemService(NotificationManager::class.java)
+    manager.createNotificationChannel(
+        NotificationChannel(
+            NOTIFICATION_CHANNEL_ID,
+            context.getString(R.string.alert_notification_channel_name),
+            NotificationManager.IMPORTANCE_HIGH
+        )
     )
-    context.getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
+    manager.createNotificationChannel(
+        NotificationChannel(
+            HOST_NOTIFICATION_CHANNEL_ID,
+            context.getString(R.string.host_notification_channel_name),
+            NotificationManager.IMPORTANCE_DEFAULT
+        ).apply { description = context.getString(R.string.host_notification_channel_description) }
+    )
 }
 
 /**
- * Receives alert pushes from the pulse server (see `crates/serverd/src/push.rs`). When the app is
- * backgrounded, FCM shows the `notification` payload itself using the manifest's default channel;
- * this only has to handle the foreground case and keeping this device's token registered.
+ * Receives pushes from the pulse server (see `crates/serverd/src/push.rs`). There are two kinds:
+ * alerts (rule, offline and geo alerts), whose `data` carries `alert_id`, `agent_id` and `severity`,
+ * and plain notifications (PAM login events, `pulse-agent-cli notify`) that carry only a title and
+ * body. When the app is backgrounded, FCM shows the `notification` payload itself using the
+ * manifest's default channel; this only has to handle the foreground case and keeping this
+ * device's token registered.
  */
 class PulseMessagingService : FirebaseMessagingService() {
 
@@ -47,20 +61,23 @@ class PulseMessagingService : FirebaseMessagingService() {
     }
 
     override fun onMessageReceived(message: RemoteMessage) {
-        val title = message.notification?.title ?: "Pulse alert"
+        val alertId = message.data["alert_id"]
+        val isAlert = alertId != null
+        val title = message.notification?.title ?: if (isAlert) "Pulse alert" else "Pulse"
         val body = message.notification?.body ?: message.data["severity"]?.let { "Severity: $it" } ?: ""
         ensureAlertChannel(this)
 
         val openIntent = Intent(this, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
-            putExtra(EXTRA_OPEN_ALERTS, true)
+            if (isAlert) putExtra(EXTRA_OPEN_ALERTS, true)
         }
         val pendingIntent = PendingIntent.getActivity(
-            this, message.data["alert_id"]?.hashCode() ?: 0, openIntent,
+            this, alertId?.hashCode() ?: 0, openIntent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        val notification = NotificationCompat.Builder(this, NOTIFICATION_CHANNEL_ID)
+        val channel = if (isAlert) NOTIFICATION_CHANNEL_ID else HOST_NOTIFICATION_CHANNEL_ID
+        val notification = NotificationCompat.Builder(this, channel)
             .setSmallIcon(R.drawable.ic_notification)
             .setColor(getColor(R.color.notification_accent))
             .setContentTitle(title)
@@ -68,10 +85,11 @@ class PulseMessagingService : FirebaseMessagingService() {
             .setStyle(NotificationCompat.BigTextStyle().bigText(body))
             .setAutoCancel(true)
             .setContentIntent(pendingIntent)
-            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setPriority(if (isAlert) NotificationCompat.PRIORITY_HIGH else NotificationCompat.PRIORITY_DEFAULT)
             .build()
 
-        val notificationId = message.data["alert_id"]?.toIntOrNull() ?: System.currentTimeMillis().toInt()
+        // An offline alert's "back online" push reuses its alert_id, so it replaces the offline one.
+        val notificationId = alertId?.toIntOrNull() ?: System.currentTimeMillis().toInt()
         runCatching { NotificationManagerCompat.from(this).notify(notificationId, notification) }
     }
 }

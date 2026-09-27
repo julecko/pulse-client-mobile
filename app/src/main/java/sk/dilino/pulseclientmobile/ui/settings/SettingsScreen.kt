@@ -6,6 +6,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -32,6 +34,7 @@ import sk.dilino.pulseclientmobile.data.model.AgentLifecycle
 import sk.dilino.pulseclientmobile.data.model.AgentSummary
 import sk.dilino.pulseclientmobile.data.model.PairingStatus
 import sk.dilino.pulseclientmobile.data.model.PushDevice
+import sk.dilino.pulseclientmobile.data.model.RetentionSetting
 import sk.dilino.pulseclientmobile.ui.components.SectionLabel
 import sk.dilino.pulseclientmobile.ui.components.Severity
 import sk.dilino.pulseclientmobile.ui.components.SeverityMarker
@@ -71,6 +74,8 @@ fun SettingsScreen(viewModel: SettingsViewModel, onOpenHost: (Long) -> Unit = {}
             HostsSection(state, viewModel, onOpenHost)
             Divider()
             NotificationsSection(state, viewModel)
+            Divider()
+            RetentionSection(state, viewModel)
             Divider()
             AccountSection(viewModel)
             Text(
@@ -285,7 +290,7 @@ private fun HostRow(agent: AgentSummary, state: SettingsUiState, vm: SettingsVie
 private fun NotificationsSection(state: SettingsUiState, vm: SettingsViewModel) {
     Section("NOTIFICATIONS") {
         Text(
-            "Devices registered to receive alert pushes. This device registers itself automatically once you're signed in and have notified rules with push on.",
+            "Devices that get pushes: alerts with push on, login notifications chosen per host (host → AUTH), and messages sent with pulse-agent-cli notify. This device registers itself once you're signed in.",
             fontSize = 11.5.sp, lineHeight = 17.sp, color = PulseColors.TextSecondary
         )
         Spacer(Modifier.height(12.dp))
@@ -317,6 +322,98 @@ private fun PushDeviceRow(device: PushDevice, state: SettingsUiState, vm: Settin
             )
         }
         Chip(if (busy) "…" else "REMOVE", tint = PulseColors.Accent, enabled = !busy) { vm.removePushDevice(device.id) }
+    }
+    Box(Modifier.fillMaxWidth().height(1.dp).background(PulseColors.Divider))
+}
+
+// ---------------------------------------------------------------- retention
+
+/** Periods offered for each kind of data; 0 keeps it forever. */
+private val RETENTION_CHOICES = listOf(7 to "7 D", 14 to "14 D", 30 to "30 D", 90 to "90 D", 365 to "1 YEAR", 0 to "FOREVER")
+
+private fun formatDays(days: Int) = when (days) {
+    0 -> "forever"
+    1 -> "1 day"
+    else -> "$days days"
+}
+
+@Composable
+private fun RetentionSection(state: SettingsUiState, vm: SettingsViewModel) {
+    Section("DATA RETENTION") {
+        Text(
+            "How long the server keeps each kind of data; it deletes older data every hour. Shortening a period deletes the older data right away, with no undo.",
+            fontSize = 11.5.sp, lineHeight = 17.sp, color = PulseColors.TextSecondary
+        )
+        Spacer(Modifier.height(6.dp))
+        when {
+            !state.retentionLoaded -> Text("Loading…", fontSize = 12.sp, color = PulseColors.TextTertiary)
+            state.retention.isEmpty() -> Text(
+                state.retentionError ?: "Nothing to show.",
+                fontSize = 12.sp, lineHeight = 17.sp,
+                color = if (state.retentionError != null) PulseColors.Accent else PulseColors.TextTertiary
+            )
+            else -> {
+                state.retention.forEach { setting -> RetentionRow(setting, state, vm) }
+                state.retentionError?.let {
+                    Spacer(Modifier.height(8.dp))
+                    Text(it, fontSize = 11.5.sp, color = PulseColors.Accent)
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun RetentionRow(setting: RetentionSetting, state: SettingsUiState, vm: SettingsViewModel) {
+    val data = setting.dataEnum ?: return
+    val busy = state.retentionBusy == data
+    val confirm = state.retentionConfirm?.takeIf { it.data == data }
+    Column(Modifier.fillMaxWidth().padding(vertical = 10.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(data.label, fontSize = 12.5.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = 0.6.sp, color = PulseColors.TextPrimary, modifier = Modifier.weight(1f))
+            Text(
+                if (busy) "…" else formatDays(setting.days).uppercase(),
+                fontSize = 12.sp, fontWeight = FontWeight.ExtraBold,
+                color = if (setting.overridden) PulseColors.Accent else PulseColors.TextPrimary
+            )
+        }
+        Spacer(Modifier.height(3.dp))
+        Text(data.description, fontSize = 10.5.sp, lineHeight = 15.sp, color = PulseColors.TextTertiary)
+        Spacer(Modifier.height(3.dp))
+        Text(
+            if (setting.overridden) {
+                "set by ${setting.updatedBy ?: "a user"}${setting.updatedAt?.let { " · ${formatServerDateTime(it)} UTC" } ?: ""} · server default ${formatDays(setting.defaultDays)}"
+            } else {
+                "server default"
+            },
+            fontSize = 10.sp, color = PulseColors.TextTertiary
+        )
+        Spacer(Modifier.height(8.dp))
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            RETENTION_CHOICES.forEach { (days, label) ->
+                val selected = setting.days == days
+                Chip(label, primary = selected, enabled = !busy) {
+                    vm.requestRetention(RetentionChange(data, days))
+                }
+            }
+            if (setting.overridden) {
+                Chip("RESET", enabled = !busy) { vm.requestRetention(RetentionChange(data, null)) }
+            }
+        }
+        if (confirm != null) {
+            val newDays = confirm.days ?: setting.defaultDays
+            Spacer(Modifier.height(8.dp))
+            Text(
+                "Keeping ${data.label.lowercase()} for ${formatDays(newDays)} deletes everything older on the server now. This can't be undone.",
+                fontSize = 11.sp, lineHeight = 16.sp, color = PulseColors.Warning
+            )
+            Spacer(Modifier.height(8.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Chip("DELETE & APPLY", primary = true, enabled = !busy) { vm.requestRetention(confirm) }
+                Chip("CANCEL") { vm.cancelRetention() }
+            }
+        }
     }
     Box(Modifier.fillMaxWidth().height(1.dp).background(PulseColors.Divider))
 }

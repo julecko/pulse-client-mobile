@@ -5,6 +5,8 @@ mostly read-only fleet view: hosts, live CPU / memory / disk / load, a 24-snapsh
 can scrub, snapshot comparison, and each host's auth log. Pairing agents can be approved, revoked and
 removed from the app. Alert rules can be created and managed from the app, alerts fired by the server
 show up in an Alerts feed and can be acknowledged, and the device can register for push notifications.
+Offline checks, geo alerts, per-host login notifications and the server's data retention are all
+configurable from the app too.
 
 ## Talking to the server
 
@@ -16,13 +18,17 @@ The app uses the server's user-facing endpoints:
 | `POST /auth/login` | Username + password → session bearer token |
 | `GET /agents` | Fleet list |
 | `GET /agents/{id}/metrics?limit=N` | Metric snapshots (CPU, memory, disks, load, uptime) |
-| `GET /agents/{id}/auth-events` | PAM session / auth-failure log |
+| `GET /agents/{id}/auth-events` | PAM session / auth-failure log, with the client IP's location when the server has GeoIP |
 | `POST /agents/{id}/approve`, `POST /agents/{id}/revoke`, `POST /agents/{id}/unrevoke`, `DELETE /agents/{id}` | Agent lifecycle |
 | `GET` / `PUT /agents/pairing` | Open or close the pairing window |
 | `GET /users/me` | The signed-in user |
 | `GET/POST /alert-rules`, `PATCH`/`DELETE /alert-rules/{id}` | Alert rule management |
 | `GET /alerts`, `POST /alerts/{id}/acknowledge` | Alert feed |
 | `GET/POST /push-devices`, `DELETE /push-devices/{id}` | This device's push registration |
+| `GET /agents/offline-alerts`, `PUT /agents/{id}/offline-alert` | Per-host offline check |
+| `GET/PUT /agents/{id}/pam-notifications` | Which of a host's login events are pushed |
+| `GET/PUT /geo-alerts/settings` | Allowed login countries for geo alerts |
+| `GET /retention`, `PUT /retention/{data}` | How long the server keeps metrics, auth events and alerts |
 | `POST /auth/logout` | Ends the session on sign out |
 
 On first launch you enter the server address (e.g. `https://10.0.0.5:8443`), a username and a
@@ -67,9 +73,27 @@ The **Alerts** tab has two sub-tabs:
   (`cpu_usage_percent`, `memory_used_percent`, `swap_used_percent`, `disk_used_percent`,
   `load_avg_one/five/fifteen`) against a threshold for a minimum duration, scoped to one agent or
   every agent. Rules can be enabled/disabled, have push toggled, or be deleted; "+ NEW RULE" creates
-  one.
+  one. Below the rules:
+  - **Offline alerts** — per approved host, how long it may go without sending metrics before the
+    server raises a critical alert (off, 2 min … 1 day). Hosts that are offline right now are marked,
+    here and in the fleet list.
+  - **Geo alerts** — the countries SSH logins may come from, whether failed logins count, and whether
+    geo alerts are pushed. Changes are sent together on SAVE, since the server replaces them all at
+    once. Shows which GeoIP database the server loaded, or warns that none is (then nothing is checked).
 
-Push notifications go through Firebase Cloud Messaging. The app registers this device's FCM token
+Geo alerts show the login's user, IP and location when expanded, and resolve when acknowledged.
+Offline alerts resolve by themselves once the host sends metrics again.
+
+Each host's **AUTH** tab chooses which of its PAM events are pushed (logins, failures, logouts) and
+shows where each remote login came from, when the server could locate it.
+
+Settings → **DATA RETENTION** sets how long the server keeps metrics, auth events and resolved alerts
+(7 days … 1 year, or forever), or resets one to the server config's default. Shortening a period
+deletes the older data on the server right away, so it asks for a second tap first.
+
+Push notifications go through Firebase Cloud Messaging. Alert pushes (rules, offline and geo alerts)
+use the *Alerts* channel and open the Alerts tab; plain pushes (host logins and
+`pulse-agent-cli notify` messages) use the quieter *Host notifications* channel. The app registers this device's FCM token
 with `POST /push-devices` once signed in (and again on token refresh); Settings → **NOTIFICATIONS**
 lists every device registered for the account and can remove one. This needs:
 

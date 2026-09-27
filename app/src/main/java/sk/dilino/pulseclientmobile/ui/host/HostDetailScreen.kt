@@ -58,6 +58,7 @@ import sk.dilino.pulseclientmobile.ui.theme.PulseColors
 import sk.dilino.pulseclientmobile.util.cpuPercent
 import sk.dilino.pulseclientmobile.util.diskPercent
 import sk.dilino.pulseclientmobile.util.formatBytes
+import sk.dilino.pulseclientmobile.util.formatDuration
 import sk.dilino.pulseclientmobile.util.formatClock
 import sk.dilino.pulseclientmobile.util.formatPercent
 import sk.dilino.pulseclientmobile.util.formatRelative
@@ -111,13 +112,14 @@ fun HostDetailScreen(
         }
 
         val shown = state.shown
+        val isOffline = state.offline?.offline == true
         val severity = when (agent.lifecycle) {
             AgentLifecycle.PENDING -> Severity.WARNING
             AgentLifecycle.REVOKED -> Severity.CRITICAL
-            AgentLifecycle.APPROVED -> shown?.severity ?: Severity.HEALTHY
+            AgentLifecycle.APPROVED -> if (isOffline) Severity.CRITICAL else shown?.severity ?: Severity.HEALTHY
         }
 
-        HostHeader(agent.hostname, severity, agent.id, agent.fingerprint, agent.lifecycle)
+        HostHeader(agent.hostname, severity, agent.id, agent.fingerprint, agent.lifecycle, isOffline)
 
         if (state.snapshots.isNotEmpty()) {
             Timeline(state, viewModel)
@@ -134,7 +136,7 @@ fun HostDetailScreen(
             when (state.tab) {
                 HostTab.OVERVIEW -> OverviewTab(state, viewModel, onBack)
                 HostTab.CPU -> CpuTab(state)
-                HostTab.AUTH -> AuthTab(state)
+                HostTab.AUTH -> AuthTab(state, viewModel)
                 HostTab.SNAPSHOTS -> SnapshotsTab(state, viewModel)
             }
         }
@@ -142,7 +144,7 @@ fun HostDetailScreen(
 }
 
 @Composable
-private fun HostHeader(name: String, severity: Severity, id: Long, fingerprint: String, lifecycle: AgentLifecycle) {
+private fun HostHeader(name: String, severity: Severity, id: Long, fingerprint: String, lifecycle: AgentLifecycle, offline: Boolean) {
     Column(Modifier.padding(horizontal = 18.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             SeverityMarker(severity, size = 10)
@@ -152,7 +154,7 @@ private fun HostHeader(name: String, severity: Severity, id: Long, fingerprint: 
                 when (lifecycle) {
                     AgentLifecycle.PENDING -> "PENDING"
                     AgentLifecycle.REVOKED -> "REVOKED"
-                    AgentLifecycle.APPROVED -> when (severity) {
+                    AgentLifecycle.APPROVED -> if (offline) "OFFLINE" else when (severity) {
                         Severity.HEALTHY -> "OK"
                         Severity.WARNING -> "WARN"
                         Severity.CRITICAL -> "CRIT"
@@ -362,6 +364,16 @@ private fun OverviewTab(state: HostDetailUiState, vm: HostDetailViewModel, onBac
         Fact("SWAP", mem?.takeIf { it.swapTotalBytes > 0 }?.let { "${formatBytes(it.swapUsedBytes)} / ${formatBytes(it.swapTotalBytes)}" } ?: "none")
         Fact("SNAPSHOT", formatServerDateTime(m.createdAt) + " UTC")
         Fact("PAIRED", formatServerDateTime(agent.createdAt) + " UTC")
+        state.offline?.let { o ->
+            Fact(
+                "OFFLINE CHECK",
+                when {
+                    o.offline -> "OFFLINE · no metrics for over ${formatDuration(o.afterSecs ?: 0)}"
+                    o.afterSecs != null -> "alert after ${formatDuration(o.afterSecs)} quiet"
+                    else -> "off · set it in Alerts → Rules"
+                }
+            )
+        }
         Fact("FINGERPRINT", agent.fingerprint)
     }
 
@@ -512,7 +524,9 @@ private fun CpuTab(state: HostDetailUiState) {
 // ---------------------------------------------------------------- auth
 
 @Composable
-private fun AuthTab(state: HostDetailUiState) {
+private fun AuthTab(state: HostDetailUiState, vm: HostDetailViewModel) {
+    PamPushSettings(state, vm)
+    Rule()
     Cap("AUTH LOG · LAST 100", Modifier.padding(start = 18.dp, end = 18.dp, top = 14.dp, bottom = 8.dp))
     if (state.authEvents.isEmpty()) {
         NoData("PAM session and auth-failure events forwarded by this agent will appear here.")
@@ -528,10 +542,80 @@ private fun AuthTab(state: HostDetailUiState) {
                 modifier = Modifier.width(56.dp).border(1.dp, sev.color()).padding(vertical = 3.dp)
             )
             Spacer(Modifier.width(10.dp))
-            Text(eventDescription(e), fontSize = 11.5.sp, lineHeight = 15.sp, color = PulseColors.TextPrimary, modifier = Modifier.weight(1f))
+            Column(Modifier.weight(1f)) {
+                Text(eventDescription(e), fontSize = 11.5.sp, lineHeight = 15.sp, color = PulseColors.TextPrimary)
+                e.location?.let { place ->
+                    Spacer(Modifier.height(2.dp))
+                    Text(place, fontSize = 10.sp, color = PulseColors.TextTertiary)
+                }
+            }
         }
         Rule(PulseColors.Divider)
     }
+}
+
+/** Which of this host's PAM events are pushed to every registered device (they're stored either way). */
+@Composable
+private fun PamPushSettings(state: HostDetailUiState, vm: HostDetailViewModel) {
+    Column(Modifier.padding(horizontal = 18.dp, vertical = 14.dp)) {
+        Cap("PUSH NOTIFICATIONS")
+        Spacer(Modifier.height(6.dp))
+        Text(
+            "Get a push when this host reports a login. Which services report at all is set by the PAM lines on the host.",
+            fontSize = 11.sp, lineHeight = 16.sp, color = PulseColors.TextTertiary
+        )
+        Spacer(Modifier.height(10.dp))
+        val pam = state.pam
+        if (pam == null) {
+            Text(
+                state.pamError ?: "Loading…", fontSize = 11.5.sp,
+                color = if (state.pamError != null) PulseColors.Accent else PulseColors.TextTertiary
+            )
+        } else {
+            PamKindChips(pam.kindSet, state, vm)
+        }
+    }
+}
+
+@Composable
+private fun PamKindChips(on: Set<AuthEventKind>, state: HostDetailUiState, vm: HostDetailViewModel) {
+    Column {
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            listOf(
+                AuthEventKind.SESSION_OPEN to "LOGINS",
+                AuthEventKind.AUTH_FAILURE to "FAILURES",
+                AuthEventKind.SESSION_CLOSE to "LOGOUTS"
+            ).forEach { (kind, label) ->
+                ToggleChip(label, kind in on, !state.pamBusy, Modifier.weight(1f)) { vm.togglePamKind(kind) }
+            }
+        }
+        Spacer(Modifier.height(6.dp))
+        Text(
+            if (on.isEmpty()) "Nothing is pushed for this host." else "Shares the host's budget of 10 pushes a minute, so a brute force can't flood your phone.",
+            fontSize = 10.5.sp, lineHeight = 15.sp, color = PulseColors.TextTertiary
+        )
+        state.pamError?.let {
+            Spacer(Modifier.height(6.dp))
+            Text(it, fontSize = 11.5.sp, color = PulseColors.Accent)
+        }
+    }
+}
+
+@Composable
+private fun ToggleChip(text: String, selected: Boolean, enabled: Boolean, modifier: Modifier = Modifier, onClick: () -> Unit) {
+    Text(
+        text = text,
+        fontSize = 10.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = 0.8.sp, textAlign = TextAlign.Center,
+        color = when {
+            selected -> PulseColors.AccentOn
+            enabled -> PulseColors.TextPrimary
+            else -> PulseColors.TextTertiary
+        },
+        modifier = modifier
+            .clickable(enabled = enabled, onClick = onClick)
+            .then(if (selected) Modifier.background(PulseColors.Accent) else Modifier.border(1.dp, PulseColors.Border))
+            .padding(horizontal = 10.dp, vertical = 8.dp)
+    )
 }
 
 private fun eventTag(kind: AuthEventKind) = when (kind) {

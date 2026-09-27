@@ -21,3 +21,11 @@ fun formatAgo(raw: String): String {
         else -> "${mins / 1440}d ago"
     }
 }
+
+/** `300` → "5m", `7200` → "2h", `86400` → "1d", `90` → "90s" — the server's own duration style. */
+fun formatDuration(secs: Int): String = when {
+    secs >= 86400 && secs % 86400 == 0 -> "${secs / 86400}d"
+    secs >= 3600 && secs % 3600 == 0 -> "${secs / 3600}h"
+    secs >= 60 && secs % 60 == 0 -> "${secs / 60}m"
+    else -> "${secs}s"
+}

@@ -11,6 +11,8 @@ import sk.dilino.pulseclientmobile.data.ConnectionStore
 import sk.dilino.pulseclientmobile.data.model.AgentSummary
 import sk.dilino.pulseclientmobile.data.model.PairingStatus
 import sk.dilino.pulseclientmobile.data.model.PushDevice
+import sk.dilino.pulseclientmobile.data.model.RetentionData
+import sk.dilino.pulseclientmobile.data.model.RetentionSetting
 import sk.dilino.pulseclientmobile.data.network.PulseApiClient
 
 data class SettingsUiState(
@@ -34,8 +36,18 @@ data class SettingsUiState(
     val pushDevices: List<PushDevice> = emptyList(),
     val pushDevicesLoaded: Boolean = false,
     val pushDevicesError: String? = null,
-    val busyDeviceId: Long? = null
+    val busyDeviceId: Long? = null,
+
+    val retention: List<RetentionSetting> = emptyList(),
+    val retentionLoaded: Boolean = false,
+    val retentionError: String? = null,
+    val retentionBusy: RetentionData? = null,
+    /** A change that would delete data right away, awaiting a second tap. */
+    val retentionConfirm: RetentionChange? = null
 )
+
+/** Keep [data] for [days] (0 = forever); null resets it to the server config's default. */
+data class RetentionChange(val data: RetentionData, val days: Int?)
 
 class SettingsViewModel(
     private val api: PulseApiClient,
@@ -63,8 +75,45 @@ class SettingsViewModel(
                 .onFailure { e -> _uiState.update { it.copy(pairingError = e.message ?: "Couldn't load pairing status") } }
             loadAgents()
             loadPushDevices()
+            loadRetention()
         }
     }
+
+    private suspend fun loadRetention() {
+        api.retention()
+            .onSuccess { list -> _uiState.update { it.copy(retention = list, retentionLoaded = true, retentionError = null) } }
+            .onFailure { e -> _uiState.update { it.copy(retentionLoaded = true, retentionError = e.message ?: "Couldn't load retention") } }
+    }
+
+    /**
+     * Changes how long [change]'s data is kept. Shortening it deletes the older data on the server
+     * right away with no undo, so that needs a second tap; lengthening it applies at once.
+     */
+    fun requestRetention(change: RetentionChange) {
+        val state = _uiState.value
+        val current = state.retention.firstOrNull { it.dataEnum == change.data } ?: return
+        val newDays = change.days ?: current.defaultDays
+        if (newDays == current.days && (change.days != null) == current.overridden) return
+        if (state.retentionConfirm != change && deletesData(current.days, newDays)) {
+            _uiState.update { it.copy(retentionConfirm = change, retentionError = null) }
+            return
+        }
+        viewModelScope.launch {
+            _uiState.update { it.copy(retentionBusy = change.data, retentionConfirm = null, retentionError = null) }
+            api.setRetention(change.data, change.days)
+                .onSuccess { updated ->
+                    _uiState.update { s ->
+                        s.copy(retentionBusy = null, retention = s.retention.map { if (it.data == updated.data) updated else it })
+                    }
+                }
+                .onFailure { e -> _uiState.update { it.copy(retentionBusy = null, retentionError = e.message ?: "Couldn't change retention") } }
+        }
+    }
+
+    fun cancelRetention() = _uiState.update { it.copy(retentionConfirm = null) }
+
+    /** Whether going from [from] to [to] days (0 = forever) drops data that is kept now. */
+    private fun deletesData(from: Int, to: Int): Boolean = to != 0 && (from == 0 || to < from)
 
     private suspend fun loadAgents() {
         api.listAgents()

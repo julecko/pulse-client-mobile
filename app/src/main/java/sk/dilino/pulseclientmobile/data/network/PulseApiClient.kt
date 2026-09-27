@@ -12,15 +12,25 @@ import okhttp3.Response
 import sk.dilino.pulseclientmobile.data.model.AgentSummary
 import sk.dilino.pulseclientmobile.data.model.AlertRecord
 import sk.dilino.pulseclientmobile.data.model.AlertRule
+import sk.dilino.pulseclientmobile.data.model.AuthEventKind
 import sk.dilino.pulseclientmobile.data.model.AuthEventRecord
+import sk.dilino.pulseclientmobile.data.model.GeoAlertSettings
 import sk.dilino.pulseclientmobile.data.model.LoginRequest
 import sk.dilino.pulseclientmobile.data.model.LoginResponse
 import sk.dilino.pulseclientmobile.data.model.MetricsRecord
 import sk.dilino.pulseclientmobile.data.model.NewAlertRule
+import sk.dilino.pulseclientmobile.data.model.OfflineAlertSetting
 import sk.dilino.pulseclientmobile.data.model.PairingStatus
+import sk.dilino.pulseclientmobile.data.model.PamNotifications
 import sk.dilino.pulseclientmobile.data.model.PushDevice
 import sk.dilino.pulseclientmobile.data.model.RegisterPushDevice
+import sk.dilino.pulseclientmobile.data.model.RetentionData
+import sk.dilino.pulseclientmobile.data.model.RetentionSetting
+import sk.dilino.pulseclientmobile.data.model.SetGeoAlertSettings
+import sk.dilino.pulseclientmobile.data.model.SetOfflineAlert
 import sk.dilino.pulseclientmobile.data.model.SetPairingRequest
+import sk.dilino.pulseclientmobile.data.model.SetPamNotifications
+import sk.dilino.pulseclientmobile.data.model.SetRetention
 import sk.dilino.pulseclientmobile.data.model.UpdateAlertRule
 import sk.dilino.pulseclientmobile.data.model.UserInfo
 
@@ -295,6 +305,91 @@ class PulseApiClient(
     suspend fun removePushDevice(deviceId: Long): Result<Unit> = withContext(Dispatchers.IO) {
         runCatching {
             authed("/push-devices/$deviceId", { delete() }) { }
+        }
+    }
+
+    // ------------------------------------------------------------ offline alerts
+
+    /** Every agent's offline-alert limit and whether it's offline right now. */
+    suspend fun offlineAlerts(): Result<List<OfflineAlertSetting>> = withContext(Dispatchers.IO) {
+        runCatching {
+            authed("/agents/offline-alerts") { response ->
+                json.decodeFromString<List<OfflineAlertSetting>>(response.body?.string().orEmpty())
+            }
+        }
+    }
+
+    /** Raises an alert once the agent sends no metrics for [afterSecs]; null turns it off (and resolves an active one). */
+    suspend fun setOfflineAlert(agentId: Long, afterSecs: Int?): Result<OfflineAlertSetting> = withContext(Dispatchers.IO) {
+        runCatching {
+            val body = json.encodeToString(SetOfflineAlert(afterSecs))
+            authed("/agents/$agentId/offline-alert", { put(body.toRequestBody(JSON_MEDIA)) }) { response ->
+                json.decodeFromString<OfflineAlertSetting>(response.body?.string().orEmpty())
+            }
+        }
+    }
+
+    // ------------------------------------------------------------ PAM push settings
+
+    suspend fun pamNotifications(agentId: Long): Result<PamNotifications> = withContext(Dispatchers.IO) {
+        runCatching {
+            authed("/agents/$agentId/pam-notifications") { response ->
+                json.decodeFromString<PamNotifications>(response.body?.string().orEmpty())
+            }
+        }
+    }
+
+    /** Replaces which of the agent's PAM events are pushed; an empty set turns them off. */
+    suspend fun setPamNotifications(agentId: Long, kinds: Set<AuthEventKind>): Result<PamNotifications> =
+        withContext(Dispatchers.IO) {
+            runCatching {
+                // Server order, so the request reads the same whatever order they were tapped in.
+                val wire = AuthEventKind.entries.filter { it in kinds }.map { it.wire }
+                val body = json.encodeToString(SetPamNotifications(wire))
+                authed("/agents/$agentId/pam-notifications", { put(body.toRequestBody(JSON_MEDIA)) }) { response ->
+                    json.decodeFromString<PamNotifications>(response.body?.string().orEmpty())
+                }
+            }
+        }
+
+    // ------------------------------------------------------------ geo alerts
+
+    suspend fun geoAlertSettings(): Result<GeoAlertSettings> = withContext(Dispatchers.IO) {
+        runCatching {
+            authed("/geo-alerts/settings") { response ->
+                json.decodeFromString<GeoAlertSettings>(response.body?.string().orEmpty())
+            }
+        }
+    }
+
+    /** Replaces all geo alert settings; an empty [allowedCountries] turns geo alerts off. */
+    suspend fun setGeoAlertSettings(allowedCountries: List<String>, includeFailures: Boolean, notify: Boolean): Result<GeoAlertSettings> =
+        withContext(Dispatchers.IO) {
+            runCatching {
+                val body = json.encodeToString(SetGeoAlertSettings(allowedCountries, includeFailures, notify))
+                authed("/geo-alerts/settings", { put(body.toRequestBody(JSON_MEDIA)) }) { response ->
+                    json.decodeFromString<GeoAlertSettings>(response.body?.string().orEmpty())
+                }
+            }
+        }
+
+    // ------------------------------------------------------------ retention
+
+    suspend fun retention(): Result<List<RetentionSetting>> = withContext(Dispatchers.IO) {
+        runCatching {
+            authed("/retention") { response ->
+                json.decodeFromString<List<RetentionSetting>>(response.body?.string().orEmpty())
+            }
+        }
+    }
+
+    /** Keeps [data] for [days] (0 = forever), or with null resets it to the server config's default. Lowering it deletes older data right away. */
+    suspend fun setRetention(data: RetentionData, days: Int?): Result<RetentionSetting> = withContext(Dispatchers.IO) {
+        runCatching {
+            val body = json.encodeToString(SetRetention(days))
+            authed("/retention/${data.wire}", { put(body.toRequestBody(JSON_MEDIA)) }) { response ->
+                json.decodeFromString<RetentionSetting>(response.body?.string().orEmpty())
+            }
         }
     }
 }

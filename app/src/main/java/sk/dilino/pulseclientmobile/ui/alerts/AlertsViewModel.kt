@@ -16,7 +16,9 @@ import sk.dilino.pulseclientmobile.data.model.AlertOperator
 import sk.dilino.pulseclientmobile.data.model.AlertRecord
 import sk.dilino.pulseclientmobile.data.model.AlertRule
 import sk.dilino.pulseclientmobile.data.model.AlertSeverity
+import sk.dilino.pulseclientmobile.data.model.GeoAlertSettings
 import sk.dilino.pulseclientmobile.data.model.NewAlertRule
+import sk.dilino.pulseclientmobile.data.model.OfflineAlertSetting
 import sk.dilino.pulseclientmobile.data.network.PulseApiClient
 
 private const val ALERTS_POLL_INTERVAL_MS = 15_000L
@@ -25,6 +27,22 @@ private const val ALERTS_LIMIT = 200
 enum class AlertsTab { ALERTS, RULES }
 
 enum class AlertFilter { ALL, CRITICAL, WARNING, ACKNOWLEDGED }
+
+/** Unsaved edits to the geo alert settings; they're only sent on SAVE, since the server replaces them all at once. */
+data class GeoDraft(
+    val allowedCountries: List<String> = emptyList(),
+    val includeFailures: Boolean = false,
+    val notify: Boolean = true,
+    /** The country code being typed. */
+    val input: String = ""
+) {
+    fun matches(s: GeoAlertSettings) =
+        allowedCountries == s.allowedCountries && includeFailures == s.includeFailures && notify == s.notify
+
+    companion object {
+        fun from(s: GeoAlertSettings) = GeoDraft(s.allowedCountries, s.includeFailures, s.notify)
+    }
+}
 
 /** In-progress state for the "new rule" form. */
 data class NewRuleDraft(
@@ -59,8 +77,22 @@ data class AlertsUiState(
     val showNewRule: Boolean = false,
     val newRule: NewRuleDraft = NewRuleDraft(),
     val creatingRule: Boolean = false,
-    val createRuleError: String? = null
+    val createRuleError: String? = null,
+
+    /** Every agent's offline-alert setting; only approved agents are watched. */
+    val offline: List<OfflineAlertSetting> = emptyList(),
+    val offlineLoaded: Boolean = false,
+    val offlineError: String? = null,
+    val offlineBusyId: Long? = null,
+
+    val geo: GeoAlertSettings? = null,
+    val geoError: String? = null,
+    val geoDraft: GeoDraft = GeoDraft(),
+    val geoSaving: Boolean = false,
+    val geoSaveError: String? = null
 ) {
+    val geoDirty: Boolean get() = geo != null && !geoDraft.matches(geo)
+
     val openCount get() = alerts.count { it.isActive }
     val ackCount get() = alerts.count { it.isAcknowledged }
 
@@ -94,7 +126,11 @@ class AlertsViewModel(private val api: PulseApiClient) : ViewModel() {
         viewModelScope.launch { loadRulesAndAgents() }
     }
 
-    fun selectTab(tab: AlertsTab) = _uiState.update { it.copy(tab = tab) }
+    fun selectTab(tab: AlertsTab) {
+        _uiState.update { it.copy(tab = tab) }
+        // Offline state changes on its own (hosts go quiet and come back), so show it fresh.
+        if (tab == AlertsTab.RULES) viewModelScope.launch { loadOffline() }
+    }
 
     fun setFilter(filter: AlertFilter) = _uiState.update { it.copy(filter = filter) }
 
@@ -145,6 +181,73 @@ class AlertsViewModel(private val api: PulseApiClient) : ViewModel() {
             .onSuccess { rules -> _uiState.update { it.copy(rules = rules.sortedBy { r -> r.name.lowercase() }, rulesLoaded = true, rulesError = null) } }
             .onFailure { e -> _uiState.update { it.copy(rulesLoaded = true, rulesError = e.message ?: "Couldn't load rules") } }
         api.listAgents().onSuccess { agents -> _uiState.update { it.copy(agents = agents.sortedBy { a -> a.hostname }) } }
+        loadOffline()
+        loadGeo()
+    }
+
+    // ------------------------------------------------------------ offline alerts
+
+    private suspend fun loadOffline() {
+        api.offlineAlerts()
+            .onSuccess { list -> _uiState.update { it.copy(offline = list.sortedBy { o -> o.hostname }, offlineLoaded = true, offlineError = null) } }
+            .onFailure { e -> _uiState.update { it.copy(offlineLoaded = true, offlineError = e.message ?: "Couldn't load offline alerts") } }
+    }
+
+    /** Alerts when [agentId] sends no metrics for [afterSecs]; null turns the check off (resolving an active offline alert). */
+    fun setOfflineAlert(agentId: Long, afterSecs: Int?) {
+        viewModelScope.launch {
+            _uiState.update { it.copy(offlineBusyId = agentId, offlineError = null) }
+            api.setOfflineAlert(agentId, afterSecs)
+                .onSuccess { updated ->
+                    _uiState.update { s -> s.copy(offlineBusyId = null, offline = s.offline.map { if (it.agentId == agentId) updated else it }) }
+                }
+                .onFailure { e -> _uiState.update { it.copy(offlineBusyId = null, offlineError = e.message ?: "Couldn't change offline alert") } }
+            // Turning a check off resolves its alert.
+            if (afterSecs == null) loadAlerts(showSpinner = false)
+        }
+    }
+
+    // ------------------------------------------------------------ geo alerts
+
+    private suspend fun loadGeo() {
+        api.geoAlertSettings()
+            .onSuccess { g ->
+                _uiState.update { s ->
+                    // Don't clobber edits in progress with a background reload.
+                    val keepDraft = s.geo != null && !s.geoDraft.matches(s.geo)
+                    s.copy(geo = g, geoError = null, geoDraft = if (keepDraft) s.geoDraft else GeoDraft.from(g))
+                }
+            }
+            .onFailure { e -> _uiState.update { it.copy(geoError = e.message ?: "Couldn't load geo alert settings") } }
+    }
+
+    fun updateGeoDraft(transform: (GeoDraft) -> GeoDraft) =
+        _uiState.update { it.copy(geoDraft = transform(it.geoDraft), geoSaveError = null) }
+
+    /** Adds the typed code to the allowed countries, if it's a two-letter ISO code. */
+    fun addGeoCountry() {
+        val code = _uiState.value.geoDraft.input.trim().uppercase()
+        if (code.length != 2 || !code.all { it in 'A'..'Z' }) {
+            _uiState.update { it.copy(geoSaveError = "Use a two-letter ISO country code, e.g. SK or DE") }
+            return
+        }
+        updateGeoDraft { d ->
+            d.copy(allowedCountries = if (code in d.allowedCountries) d.allowedCountries else d.allowedCountries + code, input = "")
+        }
+    }
+
+    fun removeGeoCountry(code: String) = updateGeoDraft { d -> d.copy(allowedCountries = d.allowedCountries - code) }
+
+    fun resetGeoDraft() = _uiState.update { s -> s.copy(geoDraft = s.geo?.let { GeoDraft.from(it) } ?: GeoDraft(), geoSaveError = null) }
+
+    fun saveGeo() {
+        val draft = _uiState.value.geoDraft
+        viewModelScope.launch {
+            _uiState.update { it.copy(geoSaving = true, geoSaveError = null) }
+            api.setGeoAlertSettings(draft.allowedCountries, draft.includeFailures, draft.notify)
+                .onSuccess { g -> _uiState.update { it.copy(geoSaving = false, geo = g, geoDraft = GeoDraft.from(g)) } }
+                .onFailure { e -> _uiState.update { it.copy(geoSaving = false, geoSaveError = e.message ?: "Couldn't save geo alert settings") } }
+        }
     }
 
     fun toggleEnabled(rule: AlertRule) = ruleAction(rule.id) { api.updateAlertRule(rule.id, enabled = !rule.enabled) }

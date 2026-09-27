@@ -2,4 +2,6 @@
     <string name="app_name">Pulse</string>
     <string name="alert_notification_channel_id">alerts</string>
     <string name="alert_notification_channel_name">Alerts</string>
+    <string name="host_notification_channel_name">Host notifications</string>
+    <string name="host_notification_channel_description">Logins reported by hosts and messages sent with pulse-agent-cli notify</string>
 </resources>

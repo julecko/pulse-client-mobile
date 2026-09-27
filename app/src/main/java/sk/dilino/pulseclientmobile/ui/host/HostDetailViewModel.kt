@@ -8,8 +8,11 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import sk.dilino.pulseclientmobile.data.model.AgentSummary
+import sk.dilino.pulseclientmobile.data.model.AuthEventKind
 import sk.dilino.pulseclientmobile.data.model.AuthEventRecord
 import sk.dilino.pulseclientmobile.data.model.MetricsRecord
+import sk.dilino.pulseclientmobile.data.model.OfflineAlertSetting
+import sk.dilino.pulseclientmobile.data.model.PamNotifications
 import sk.dilino.pulseclientmobile.data.network.PulseApiClient
 
 private const val POLL_INTERVAL_MS = 10_000L
@@ -23,6 +26,12 @@ data class HostDetailUiState(
     /** Oldest → newest. */
     val snapshots: List<MetricsRecord> = emptyList(),
     val authEvents: List<AuthEventRecord> = emptyList(),
+    /** Which of this host's PAM events are pushed; null until loaded. */
+    val pam: PamNotifications? = null,
+    val pamBusy: Boolean = false,
+    val pamError: String? = null,
+    /** This host's offline check and whether it's offline now; null until loaded. */
+    val offline: OfflineAlertSetting? = null,
     val error: String? = null,
     val actionInFlight: Boolean = false,
     /** Removal is permanent, so the button needs a second tap. */
@@ -67,6 +76,8 @@ class HostDetailViewModel(
         val approved = agent?.lifecycle == sk.dilino.pulseclientmobile.data.model.AgentLifecycle.APPROVED
         val metricsResult = if (approved) api.metrics(agentId, SNAPSHOT_WINDOW) else null
         val eventsResult = if (agent != null) api.authEvents(agentId) else null
+        val offline = if (approved) api.offlineAlerts().getOrNull()?.firstOrNull { it.agentId == agentId } else null
+        if (agent != null && _uiState.value.pam == null) loadPam()
 
         val error = agentsResult.exceptionOrNull()?.message
             ?: metricsResult?.exceptionOrNull()?.message
@@ -84,6 +95,7 @@ class HostDetailViewModel(
                 agent = agent ?: s.agent,
                 snapshots = newSnapshots,
                 authEvents = eventsResult?.getOrNull() ?: s.authEvents,
+                offline = offline ?: s.offline.takeIf { approved },
                 pinnedIndex = s.pinnedIndex?.minus(shift)?.coerceAtLeast(0),
                 compareIndex = s.compareIndex?.minus(shift)?.coerceAtLeast(0),
                 error = error
@@ -92,6 +104,24 @@ class HostDetailViewModel(
     }
 
     fun selectTab(tab: HostTab) = _uiState.update { it.copy(tab = tab) }
+
+    private suspend fun loadPam() {
+        api.pamNotifications(agentId)
+            .onSuccess { p -> _uiState.update { it.copy(pam = p, pamError = null) } }
+            .onFailure { e -> _uiState.update { it.copy(pamError = e.message ?: "Couldn't load login notifications") } }
+    }
+
+    /** Turns pushing [kind] of this host's PAM events on or off; the others stay as they are. */
+    fun togglePamKind(kind: AuthEventKind) {
+        val current = _uiState.value.pam?.kindSet ?: return
+        val next = if (kind in current) current - kind else current + kind
+        viewModelScope.launch {
+            _uiState.update { it.copy(pamBusy = true, pamError = null) }
+            api.setPamNotifications(agentId, next)
+                .onSuccess { p -> _uiState.update { it.copy(pamBusy = false, pam = p) } }
+                .onFailure { e -> _uiState.update { it.copy(pamBusy = false, pamError = e.message ?: "Couldn't change login notifications") } }
+        }
+    }
 
     fun scrubTo(index: Int) = _uiState.update {
         it.copy(pinnedIndex = if (index >= it.lastIndex) null else index.coerceAtLeast(0))

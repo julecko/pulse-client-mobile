@@ -28,15 +28,20 @@ data class FleetUiState(
     /** Recent snapshots per agent id, oldest → newest. Pending/revoked agents have none. */
     val metrics: Map<Long, List<MetricsRecord>> = emptyMap(),
     val error: String? = null,
-    val actionInFlightId: Long? = null
+    val actionInFlightId: Long? = null,
+    /** Agents with an active offline alert: quiet for longer than their offline-check limit. */
+    val offlineIds: Set<Long> = emptySet()
 ) {
+    fun isOffline(agent: AgentSummary) = agent.lifecycle == AgentLifecycle.APPROVED && agent.id in offlineIds
+
     val approvedCount get() = agents.count { it.lifecycle == AgentLifecycle.APPROVED }
     val pendingCount get() = agents.count { it.lifecycle == AgentLifecycle.PENDING }
 
     fun severityOf(agent: AgentSummary): Severity = when (agent.lifecycle) {
         AgentLifecycle.PENDING -> Severity.WARNING
         AgentLifecycle.REVOKED -> Severity.CRITICAL
-        AgentLifecycle.APPROVED -> metrics[agent.id]?.lastOrNull()?.severity ?: Severity.HEALTHY
+        AgentLifecycle.APPROVED ->
+            if (agent.id in offlineIds) Severity.CRITICAL else metrics[agent.id]?.lastOrNull()?.severity ?: Severity.HEALTHY
     }
 
     /** Hosts that need a human: anything not healthy. */
@@ -85,6 +90,7 @@ class FleetViewModel(private val api: PulseApiClient) : ViewModel() {
                 .map { agent -> async { agent.id to api.metrics(agent.id, SNAPSHOTS_PER_HOST).getOrNull() } }
                 .awaitAll()
         }.mapNotNull { (id, list) -> list?.let { id to it } }.toMap()
+        val offline = api.offlineAlerts().getOrNull()?.filter { it.offline }?.map { it.agentId }?.toSet()
 
         _uiState.update {
             it.copy(
@@ -94,6 +100,7 @@ class FleetViewModel(private val api: PulseApiClient) : ViewModel() {
                 agents = agents.sortedBy { a -> a.hostname },
                 // Keep the last known series for a host whose metrics call blipped.
                 metrics = it.metrics.filterKeys { id -> agents.any { a -> a.id == id } } + metrics,
+                offlineIds = offline ?: it.offlineIds,
                 error = null
             )
         }

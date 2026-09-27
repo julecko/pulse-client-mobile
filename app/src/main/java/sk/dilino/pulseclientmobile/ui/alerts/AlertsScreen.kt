@@ -46,9 +46,13 @@ import sk.dilino.pulseclientmobile.data.model.AlertOperator
 import sk.dilino.pulseclientmobile.data.model.AlertRecord
 import sk.dilino.pulseclientmobile.data.model.AlertRule
 import sk.dilino.pulseclientmobile.data.model.AlertSeverity
+import sk.dilino.pulseclientmobile.data.model.AlertSource
+import sk.dilino.pulseclientmobile.data.model.GeoAlertSettings
+import sk.dilino.pulseclientmobile.data.model.OfflineAlertSetting
 import sk.dilino.pulseclientmobile.ui.components.SectionLabel
 import sk.dilino.pulseclientmobile.ui.theme.PulseColors
 import sk.dilino.pulseclientmobile.util.formatAgo
+import sk.dilino.pulseclientmobile.util.formatDuration
 import sk.dilino.pulseclientmobile.util.formatServerDateTime
 
 private val Hair = PulseColors.BorderSubtle
@@ -184,7 +188,7 @@ private fun AlertsList(state: AlertsUiState, vm: AlertsViewModel, onOpenHost: (L
         state.alertsError != null && state.alerts.isEmpty() ->
             Text(state.alertsError, fontSize = 12.sp, lineHeight = 17.sp, color = PulseColors.Accent, modifier = Modifier.padding(18.dp))
         alerts.isEmpty() -> Text(
-            if (state.alerts.isEmpty()) "No alerts yet. Set up a rule in the RULES tab and it will fire here when its condition holds."
+            if (state.alerts.isEmpty()) "No alerts yet. Set up rules, offline checks or geo alerts in the RULES tab and they will fire here."
             else "No alerts match this filter.",
             fontSize = 12.sp, lineHeight = 17.sp, color = PulseColors.TextTertiary, modifier = Modifier.padding(18.dp)
         )
@@ -216,6 +220,14 @@ private fun AlertCard(alert: AlertRecord, state: AlertsUiState, vm: AlertsViewMo
                     fontSize = 13.5.sp, fontWeight = FontWeight.ExtraBold, color = PulseColors.TextPrimary,
                     modifier = Modifier.weight(1f)
                 )
+                sourceTag(alert.source)?.let { tag ->
+                    Text(
+                        tag,
+                        fontSize = 9.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 1.sp, color = PulseColors.TextSecondary,
+                        modifier = Modifier.border(1.dp, PulseColors.Border).padding(horizontal = 4.dp, vertical = 2.dp)
+                    )
+                    Spacer(Modifier.width(8.dp))
+                }
                 Text(formatAgo(alert.triggeredAt), fontSize = 10.sp, color = PulseColors.TextTertiary)
                 if (!alert.isActive) {
                     Spacer(Modifier.width(6.dp))
@@ -231,13 +243,31 @@ private fun AlertCard(alert: AlertRecord, state: AlertsUiState, vm: AlertsViewMo
                 Spacer(Modifier.height(10.dp))
                 Box(Modifier.fillMaxWidth().height(1.dp).background(Hair))
                 Spacer(Modifier.height(10.dp))
+                alert.geo?.let { geo ->
+                    DetailRow("LOGIN", if (geo.isFailure) "failed SSH login" else "SSH login")
+                    DetailRow("USER", geo.user)
+                    DetailRow("FROM", geo.ip)
+                    DetailRow("LOCATION", geo.location)
+                }
                 DetailRow("TRIGGERED", formatServerDateTime(alert.triggeredAt) + " UTC")
                 if (alert.resolvedAt != null) DetailRow("RESOLVED", formatServerDateTime(alert.resolvedAt) + " UTC")
-                else DetailRow("STATUS", "still active")
+                else DetailRow(
+                    "STATUS",
+                    when (alert.source) {
+                        AlertSource.GEO -> "open until acknowledged"
+                        AlertSource.OFFLINE -> "still offline · resolves when metrics arrive"
+                        else -> "still active"
+                    }
+                )
                 if (alert.isAcknowledged) {
                     DetailRow("ACKNOWLEDGED", "${alert.acknowledgedBy ?: "someone"} · ${formatServerDateTime(alert.acknowledgedAt!!)} UTC")
                 }
-                if (alert.ruleId == null) DetailRow("RULE", "deleted")
+                when (alert.source) {
+                    AlertSource.DELETED_RULE -> DetailRow("RULE", "deleted")
+                    AlertSource.OFFLINE -> DetailRow("SOURCE", "offline check")
+                    AlertSource.GEO -> DetailRow("SOURCE", "geo alert")
+                    AlertSource.RULE -> Unit
+                }
 
                 Spacer(Modifier.height(10.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -314,6 +344,179 @@ private fun RulesTab(state: AlertsUiState, vm: AlertsViewModel) {
         )
         else -> state.rules.forEach { rule -> RuleRow(rule, state, vm) }
     }
+
+    OfflineSection(state, vm)
+    GeoSection(state, vm)
+}
+
+// ---------------------------------------------------------------- offline alerts
+
+/** Limits offered for the offline check; the agent's default metrics interval is 60 s, so a few of those. */
+private val OFFLINE_CHOICES = listOf(null to "OFF", 120 to "2 MIN", 300 to "5 MIN", 900 to "15 MIN", 3600 to "1 HOUR", 86400 to "1 DAY")
+
+@Composable
+private fun OfflineSection(state: AlertsUiState, vm: AlertsViewModel) {
+    val watchable = state.offline.filter { it.status == "approved" }
+    Spacer(Modifier.height(18.dp))
+    Box(Modifier.fillMaxWidth().height(2.dp).background(PulseColors.Border))
+    Column(Modifier.padding(horizontal = 18.dp, vertical = 14.dp)) {
+        SectionLabel("OFFLINE ALERTS · ${watchable.count { it.afterSecs != null }} WATCHED")
+        Spacer(Modifier.height(4.dp))
+        Text(
+            "Raise a critical alert when a host sends no metrics for longer than its limit, and push again when it's back. Off for every host until set.",
+            fontSize = 11.5.sp, lineHeight = 16.sp, color = PulseColors.TextTertiary
+        )
+    }
+    Box(Modifier.fillMaxWidth().height(1.dp).background(Hair))
+    when {
+        !state.offlineLoaded -> Text("Loading…", fontSize = 12.sp, color = PulseColors.TextTertiary, modifier = Modifier.padding(18.dp))
+        watchable.isEmpty() -> Text(
+            state.offlineError ?: "No approved hosts yet. Only approved hosts can be watched.",
+            fontSize = 12.sp, lineHeight = 17.sp,
+            color = if (state.offlineError != null) PulseColors.Accent else PulseColors.TextTertiary,
+            modifier = Modifier.padding(18.dp)
+        )
+        else -> {
+            watchable.forEach { setting -> OfflineRow(setting, state.offlineBusyId == setting.agentId, vm) }
+            state.offlineError?.let {
+                Text(it, fontSize = 11.5.sp, color = PulseColors.Accent, modifier = Modifier.padding(horizontal = 18.dp, vertical = 10.dp))
+            }
+        }
+    }
+}
+
+@Composable
+private fun OfflineRow(setting: OfflineAlertSetting, busy: Boolean, vm: AlertsViewModel) {
+    Column(Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 13.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(setting.hostname, fontSize = 14.sp, fontWeight = FontWeight.ExtraBold, color = PulseColors.TextPrimary, modifier = Modifier.weight(1f))
+            if (setting.offline) {
+                Text(
+                    "OFFLINE", fontSize = 9.5.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 1.sp, color = PulseColors.Accent,
+                    modifier = Modifier.border(1.dp, PulseColors.Accent).padding(horizontal = 5.dp, vertical = 3.dp)
+                )
+            }
+        }
+        Spacer(Modifier.height(5.dp))
+        Text(
+            if (busy) "saving…" else buildList {
+                add(setting.afterSecs?.let { "alert after ${formatDuration(it)} quiet" } ?: "not watched")
+                add(setting.lastMetricsAt?.let { "last metrics ${formatAgo(it)}" } ?: "no metrics yet")
+            }.joinToString(" · "),
+            fontSize = 11.5.sp, color = PulseColors.TextSecondary
+        )
+        Spacer(Modifier.height(10.dp))
+        val choices = OFFLINE_CHOICES.let { list ->
+            // Keep a limit set elsewhere (e.g. with pulse-server-cli) visible and selected.
+            val current = setting.afterSecs
+            if (current != null && list.none { it.first == current }) list + (current to formatDuration(current).uppercase()) else list
+        }
+        WrapChips(choices) { (secs, label) ->
+            PickChip(label, setting.afterSecs == secs, Modifier.padding(bottom = 6.dp)) {
+                if (!busy && setting.afterSecs != secs) vm.setOfflineAlert(setting.agentId, secs)
+            }
+        }
+    }
+    Box(Modifier.fillMaxWidth().height(1.dp).background(PulseColors.Divider))
+}
+
+// ---------------------------------------------------------------- geo alerts
+
+@Composable
+private fun GeoSection(state: AlertsUiState, vm: AlertsViewModel) {
+    val geo = state.geo
+    Spacer(Modifier.height(18.dp))
+    Box(Modifier.fillMaxWidth().height(2.dp).background(PulseColors.Border))
+    Column(Modifier.padding(horizontal = 18.dp, vertical = 14.dp)) {
+        SectionLabel("GEO ALERTS")
+        Spacer(Modifier.height(4.dp))
+        Text(
+            "Alert when someone logs in over SSH from a country you didn't allow. Needs the PAM hook on the host; logins from private and VPN addresses are never checked.",
+            fontSize = 11.5.sp, lineHeight = 16.sp, color = PulseColors.TextTertiary
+        )
+        Spacer(Modifier.height(12.dp))
+
+        if (geo == null) {
+            Text(
+                state.geoError ?: "Loading…", fontSize = 12.sp,
+                color = if (state.geoError != null) PulseColors.Accent else PulseColors.TextTertiary
+            )
+        } else {
+            GeoSettingsForm(geo, state, vm)
+        }
+    }
+}
+
+@Composable
+private fun GeoSettingsForm(geo: GeoAlertSettings, state: AlertsUiState, vm: AlertsViewModel) {
+    val draft = state.geoDraft
+    Column {
+        val db = geo.database
+        if (db == null) {
+            Text(
+                "No GeoIP database is loaded on the server, so no logins are checked whatever you set here. Install GeoLite2-City.mmdb (see the server README) and restart pulse-serverd.",
+                fontSize = 11.5.sp, lineHeight = 16.sp, color = PulseColors.Warning
+            )
+        } else {
+            Text("${db.databaseType} · built ${formatServerDateTime(db.builtAt)} UTC", fontSize = 11.sp, color = PulseColors.TextSecondary)
+        }
+        Spacer(Modifier.height(12.dp))
+
+        Text("ALLOWED COUNTRIES", fontSize = 9.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 1.2.sp, color = PulseColors.TextTertiary)
+        Spacer(Modifier.height(6.dp))
+        if (draft.allowedCountries.isEmpty()) {
+            Text("None — geo alerts are off. Add the countries logins normally come from.", fontSize = 11.5.sp, lineHeight = 16.sp, color = PulseColors.TextTertiary)
+        } else {
+            WrapChips(draft.allowedCountries) { code ->
+                PickChip("$code  ×", selected = false, modifier = Modifier.padding(bottom = 6.dp)) { vm.removeGeoCountry(code) }
+            }
+        }
+        Spacer(Modifier.height(8.dp))
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            OutlinedTextField(
+                value = draft.input,
+                onValueChange = { v -> vm.updateGeoDraft { it.copy(input = v.take(2).uppercase()) } },
+                modifier = Modifier.width(96.dp),
+                singleLine = true,
+                placeholder = { Text("SK") },
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedTextColor = PulseColors.TextPrimary,
+                    unfocusedTextColor = PulseColors.TextPrimary,
+                    focusedBorderColor = PulseColors.Accent,
+                    unfocusedBorderColor = PulseColors.Border,
+                    cursorColor = PulseColors.Accent
+                )
+            )
+            Spacer(Modifier.width(8.dp))
+            FormButton("ADD", primary = false, enabled = draft.input.isNotBlank()) { vm.addGeoCountry() }
+        }
+        Spacer(Modifier.height(12.dp))
+
+        LabeledSwitch("ALSO FAILED LOGINS", draft.includeFailures, !state.geoSaving) { vm.updateGeoDraft { it.copy(includeFailures = !it.includeFailures) } }
+        Spacer(Modifier.height(8.dp))
+        LabeledSwitch("PUSH NOTIFICATION", draft.notify, !state.geoSaving) { vm.updateGeoDraft { it.copy(notify = !it.notify) } }
+        Spacer(Modifier.height(6.dp))
+        Text(
+            "Failed logins from abroad are constant on a server open to the internet, so they're off by default. A successful login is critical, a failed one a warning; either resolves when acknowledged.",
+            fontSize = 11.sp, lineHeight = 16.sp, color = PulseColors.TextTertiary
+        )
+
+        state.geoSaveError?.let {
+            Spacer(Modifier.height(8.dp))
+            Text(it, fontSize = 11.5.sp, color = PulseColors.Accent)
+        }
+        if (state.geoDirty) {
+            Spacer(Modifier.height(12.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                FormButton(if (state.geoSaving) "…" else "SAVE", primary = true, enabled = !state.geoSaving) { vm.saveGeo() }
+                FormButton("DISCARD", primary = false, enabled = !state.geoSaving) { vm.resetGeoDraft() }
+            }
+        }
+        geo.updatedBy?.let {
+            Spacer(Modifier.height(10.dp))
+            Text("last changed by $it · ${formatServerDateTime(geo.updatedAt)} UTC", fontSize = 10.5.sp, color = PulseColors.TextTertiary)
+        }
+    }
 }
 
 @Composable
@@ -355,10 +558,10 @@ private fun ruleSummary(rule: AlertRule, agents: List<AgentSummary>): String {
     return "${rule.metricEnum.label} ${rule.operatorEnum.symbol} $threshold${rule.metricEnum.unit} $duration · $scope"
 }
 
-private fun formatDuration(secs: Int): String = when {
-    secs % 3600 == 0 -> "${secs / 3600}h"
-    secs % 60 == 0 -> "${secs / 60}m"
-    else -> "${secs}s"
+private fun sourceTag(source: AlertSource): String? = when (source) {
+    AlertSource.GEO -> "GEO"
+    AlertSource.OFFLINE -> "OFFLINE"
+    AlertSource.RULE, AlertSource.DELETED_RULE -> null
 }
 
 @Composable
