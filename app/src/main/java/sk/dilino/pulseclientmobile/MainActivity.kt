@@ -12,10 +12,12 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import sk.dilino.pulseclientmobile.data.ConnectionStore
+import sk.dilino.pulseclientmobile.push.EXTRA_APP_VERSION_CODE
 import sk.dilino.pulseclientmobile.push.EXTRA_OPEN_ALERTS
 import sk.dilino.pulseclientmobile.push.ensureAlertChannel
 import sk.dilino.pulseclientmobile.ui.PulseApp
 import sk.dilino.pulseclientmobile.ui.theme.PulseTheme
+import sk.dilino.pulseclientmobile.update.AppUpdater
 
 class MainActivity : ComponentActivity() {
 
@@ -30,11 +32,14 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        AppUpdater.init(applicationContext)
         ensureAlertChannel(applicationContext)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             requestNotificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
         }
         if (intent?.getBooleanExtra(EXTRA_OPEN_ALERTS, false) == true) openAlertsRequest++
+        // An "update available" push; FCM puts its data in the extras when it shows it itself.
+        if (intent?.hasExtra(EXTRA_APP_VERSION_CODE) == true) AppUpdater.requestCheck()
 
         setContent {
             PulseTheme {
@@ -47,5 +52,6 @@ class MainActivity : ComponentActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         if (intent.getBooleanExtra(EXTRA_OPEN_ALERTS, false)) openAlertsRequest++
+        if (intent.hasExtra(EXTRA_APP_VERSION_CODE)) AppUpdater.requestCheck()
     }
 }

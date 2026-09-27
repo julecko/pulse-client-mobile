@@ -9,8 +9,11 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
+import java.io.File
+import java.util.concurrent.TimeUnit
 import sk.dilino.pulseclientmobile.data.model.AgentSummary
 import sk.dilino.pulseclientmobile.data.model.AlertRecord
+import sk.dilino.pulseclientmobile.data.model.AppRelease
 import sk.dilino.pulseclientmobile.data.model.AlertRule
 import sk.dilino.pulseclientmobile.data.model.AuthEventRecord
 import sk.dilino.pulseclientmobile.data.model.LoginRequest
@@ -54,6 +57,10 @@ class PulseApiClient(
 
     private val baseUrl: String = rawBaseUrl.trimEnd('/')
     private val client: OkHttpClient = buildHttpClient(pinnedCertSha256)
+    /** Same trust as [client], but patient enough for an APK download on a slow network. */
+    private val downloadClient: OkHttpClient by lazy {
+        client.newBuilder().readTimeout(60, TimeUnit.SECONDS).build()
+    }
 
     @Volatile private var token: String? = null
     @Volatile private var credentialsRejected = false
@@ -111,7 +118,12 @@ class PulseApiClient(
     }
 
     /** Sends an authenticated request, logging in first and once more if the session was rejected. */
-    private fun <T> authed(path: String, configure: Request.Builder.() -> Unit = {}, handle: (Response) -> T): T {
+    private fun <T> authed(
+        path: String,
+        configure: Request.Builder.() -> Unit = {},
+        httpClient: OkHttpClient = client,
+        handle: (Response) -> T
+    ): T {
         for (attempt in 0..1) {
             val bearer = token ?: loginBlocking()
             val request = Request.Builder()
@@ -119,7 +131,7 @@ class PulseApiClient(
                 .header("Authorization", "Bearer $bearer")
                 .apply(configure)
                 .build()
-            client.newCall(request).execute().use { response ->
+            httpClient.newCall(request).execute().use { response ->
                 if (response.code == 401 && attempt == 0) {
                     token = null
                 } else {
@@ -297,4 +309,43 @@ class PulseApiClient(
             authed("/push-devices/$deviceId", { delete() }) { }
         }
     }
+
+    // ------------------------------------------------------------ app updates
+
+    /** The newest app release on the server, or null if none was uploaded (or the server predates app updates). */
+    suspend fun latestAppRelease(): Result<AppRelease?> = withContext(Dispatchers.IO) {
+        runCatching {
+            try {
+                authed("/app-releases/latest") { response ->
+                    json.decodeFromString<AppRelease>(response.body?.string().orEmpty())
+                }
+            } catch (e: ApiException) {
+                if (e.code == 404) null else throw e
+            }
+        }
+    }
+
+    /** Downloads release [versionCode]'s APK to [dest], reporting (bytes so far, total or -1) as it goes. */
+    suspend fun downloadAppRelease(versionCode: Long, dest: File, onProgress: (Long, Long) -> Unit): Result<Unit> =
+        withContext(Dispatchers.IO) {
+            runCatching {
+                authed("/app-releases/$versionCode/apk", httpClient = downloadClient) { response ->
+                    val body = response.body ?: throw ApiException(response.code, "Empty download")
+                    val total = body.contentLength()
+                    var done = 0L
+                    dest.outputStream().use { out ->
+                        body.byteStream().use { input ->
+                            val buffer = ByteArray(64 * 1024)
+                            while (true) {
+                                val n = input.read(buffer)
+                                if (n < 0) break
+                                out.write(buffer, 0, n)
+                                done += n
+                                onProgress(done, total)
+                            }
+                        }
+                    }
+                }
+            }
+        }
 }

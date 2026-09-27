@@ -19,9 +19,12 @@ import sk.dilino.pulseclientmobile.MainActivity
 import sk.dilino.pulseclientmobile.R
 import sk.dilino.pulseclientmobile.data.ConnectionStore
 import sk.dilino.pulseclientmobile.data.network.PulseApiClient
+import sk.dilino.pulseclientmobile.update.AppUpdater
 
 const val NOTIFICATION_CHANNEL_ID = "alerts"
 const val EXTRA_OPEN_ALERTS = "open_alerts"
+/** In an "update available" push's `data` (see the server's `web::app_releases`), and so in its tap intent. */
+const val EXTRA_APP_VERSION_CODE = "app_version_code"
 
 /** Ensures the alerts notification channel exists; safe to call repeatedly. */
 fun ensureAlertChannel(context: Context) {
@@ -47,13 +50,19 @@ class PulseMessagingService : FirebaseMessagingService() {
     }
 
     override fun onMessageReceived(message: RemoteMessage) {
+        val appVersionCode = message.data[EXTRA_APP_VERSION_CODE]
+        if (appVersionCode != null) {
+            // A new app release: the running app checks for it (and installs it with auto-update on).
+            AppUpdater.init(applicationContext)
+            AppUpdater.requestCheck()
+        }
         val title = message.notification?.title ?: "Pulse alert"
         val body = message.notification?.body ?: message.data["severity"]?.let { "Severity: $it" } ?: ""
         ensureAlertChannel(this)
 
         val openIntent = Intent(this, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
-            putExtra(EXTRA_OPEN_ALERTS, true)
+            if (appVersionCode != null) putExtra(EXTRA_APP_VERSION_CODE, appVersionCode) else putExtra(EXTRA_OPEN_ALERTS, true)
         }
         val pendingIntent = PendingIntent.getActivity(
             this, message.data["alert_id"]?.hashCode() ?: 0, openIntent,

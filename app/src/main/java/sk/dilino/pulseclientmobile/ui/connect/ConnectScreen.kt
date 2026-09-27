@@ -34,6 +34,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import sk.dilino.pulseclientmobile.ui.theme.PulseColors
+import sk.dilino.pulseclientmobile.update.AppUpdater
+import sk.dilino.pulseclientmobile.update.installedVersionLabel
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -42,6 +44,7 @@ fun ConnectScreen(
     onConnected: () -> Unit
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
+    val update by AppUpdater.state.collectAsStateWithLifecycle()
 
     Column(
         modifier = Modifier
@@ -51,7 +54,7 @@ fun ConnectScreen(
         verticalArrangement = Arrangement.Center
     ) {
         Text(
-            text = "SENTRY / PULSE",
+            text = "SENTRY / PULSE · ${installedVersionLabel(update)}",
             style = MaterialTheme.typography.labelSmall,
             color = PulseColors.Accent
         )

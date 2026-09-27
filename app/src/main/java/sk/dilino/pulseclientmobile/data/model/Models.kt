@@ -257,3 +257,20 @@ data class PushDevice(
     @SerialName("created_at") val createdAt: String,
     @SerialName("last_seen_at") val lastSeenAt: String
 )
+
+/**
+ * Mirrors `protocol::AppRelease` — a release of this app uploaded to the server with
+ * `pulse-server-cli app upload`; returned by `GET /app-releases/latest`.
+ */
+@Serializable
+data class AppRelease(
+    @SerialName("version_code") val versionCode: Long,
+    @SerialName("version_name") val versionName: String,
+    val notes: String? = null,
+    /** APK size in bytes. */
+    val size: Long,
+    /** SHA-256 of the APK, lowercase hex. */
+    val sha256: String,
+    @SerialName("uploaded_by") val uploadedBy: String? = null,
+    @SerialName("created_at") val createdAt: String
+)

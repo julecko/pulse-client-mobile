@@ -23,9 +23,11 @@ import androidx.compose.runtime.key
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.compose.LifecycleStartEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.initializer
@@ -42,6 +44,7 @@ import sk.dilino.pulseclientmobile.data.Connection
 import sk.dilino.pulseclientmobile.data.ConnectionStore
 import sk.dilino.pulseclientmobile.data.network.PulseApiClient
 import sk.dilino.pulseclientmobile.ui.alerts.AlertsScreen
+import sk.dilino.pulseclientmobile.ui.components.UpdateBanner
 import sk.dilino.pulseclientmobile.ui.alerts.AlertsViewModel
 import sk.dilino.pulseclientmobile.ui.connect.ConnectScreen
 import sk.dilino.pulseclientmobile.ui.connect.ConnectViewModel
@@ -58,6 +61,7 @@ import sk.dilino.pulseclientmobile.ui.nav.topLevelDestinations
 import sk.dilino.pulseclientmobile.ui.settings.SettingsScreen
 import sk.dilino.pulseclientmobile.ui.settings.SettingsViewModel
 import sk.dilino.pulseclientmobile.ui.theme.PulseColors
+import sk.dilino.pulseclientmobile.update.AppUpdater
 
 @Composable
 fun PulseApp(connectionStore: ConnectionStore, openAlertsRequest: Int = 0) {
@@ -76,6 +80,17 @@ fun PulseApp(connectionStore: ConnectionStore, openAlertsRequest: Int = 0) {
         key(current) {
             val api = remember(current) { PulseApiClient(current.baseUrl, current.username, current.password, current.pinnedCertSha256) }
             LaunchedEffect(current) { registerFcmToken(api) }
+            // Look for a newer app release whenever the app comes to the foreground (throttled by
+            // AppUpdater), and right away when a push announces one.
+            LifecycleStartEffect(api) {
+                AppUpdater.resume(api)
+                AppUpdater.check(api)
+                onStopOrDispose { }
+            }
+            val checkRequests by AppUpdater.checkRequests.collectAsStateWithLifecycle()
+            LaunchedEffect(api, checkRequests) {
+                if (checkRequests > 0) AppUpdater.check(api, force = true)
+            }
             CompositionLocalProvider(
                 LocalPulseApi provides api,
                 LocalConnectionStore provides connectionStore
@@ -99,8 +114,20 @@ private fun MainScaffold(current: Connection, openAlertsRequest: Int) {
         }
     }
 
+    val update by AppUpdater.state.collectAsStateWithLifecycle()
+    val api = LocalPulseApi.current
+    val context = LocalContext.current
+
     Scaffold(
         containerColor = PulseColors.Background,
+        topBar = {
+            UpdateBanner(
+                state = update,
+                onInstall = { AppUpdater.install(api, it) },
+                onAllowInstalls = { context.startActivity(AppUpdater.permissionSettingsIntent(context)) },
+                onConfirm = { context.startActivity(it) }
+            )
+        },
         bottomBar = { PulseBottomBar(navController) }
     ) { padding ->
         NavHost(

@@ -19,6 +19,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -37,11 +38,17 @@ import sk.dilino.pulseclientmobile.ui.components.Severity
 import sk.dilino.pulseclientmobile.ui.components.SeverityMarker
 import sk.dilino.pulseclientmobile.ui.components.StatusPill
 import sk.dilino.pulseclientmobile.ui.theme.PulseColors
+import sk.dilino.pulseclientmobile.update.AppUpdater
+import sk.dilino.pulseclientmobile.update.UpdateState
+import sk.dilino.pulseclientmobile.update.UpdateStatus
+import sk.dilino.pulseclientmobile.update.describe
+import sk.dilino.pulseclientmobile.update.installedVersionLabel
 import sk.dilino.pulseclientmobile.util.formatServerDateTime
 
 @Composable
 fun SettingsScreen(viewModel: SettingsViewModel, onOpenHost: (Long) -> Unit = {}) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
+    val update by AppUpdater.state.collectAsStateWithLifecycle()
 
     Column(
         modifier = Modifier
@@ -55,7 +62,7 @@ fun SettingsScreen(viewModel: SettingsViewModel, onOpenHost: (Long) -> Unit = {}
                 color = PulseColors.TextPrimary
             )
             Spacer(Modifier.height(7.dp))
-            Text("Signed in as ${state.username}", fontSize = 11.sp, color = PulseColors.TextTertiary)
+            Text("Signed in as ${state.username} · Pulse ${installedVersionLabel(update)}", fontSize = 11.sp, color = PulseColors.TextTertiary)
         }
         Box(Modifier.fillMaxWidth().height(2.dp).background(PulseColors.Border))
 
@@ -72,9 +79,11 @@ fun SettingsScreen(viewModel: SettingsViewModel, onOpenHost: (Long) -> Unit = {}
             Divider()
             NotificationsSection(state, viewModel)
             Divider()
+            AppUpdateSection(viewModel)
+            Divider()
             AccountSection(viewModel)
             Text(
-                text = "Sentry · read-only fleet monitor",
+                text = "Sentry · read-only fleet monitor · ${installedVersionLabel(update, withCode = true)}",
                 fontSize = 10.5.sp,
                 color = PulseColors.TextTertiary,
                 modifier = Modifier.padding(horizontal = 18.dp, vertical = 8.dp)
@@ -319,6 +328,63 @@ private fun PushDeviceRow(device: PushDevice, state: SettingsUiState, vm: Settin
         Chip(if (busy) "…" else "REMOVE", tint = PulseColors.Accent, enabled = !busy) { vm.removePushDevice(device.id) }
     }
     Box(Modifier.fillMaxWidth().height(1.dp).background(PulseColors.Divider))
+}
+
+// ---------------------------------------------------------------- app updates
+
+@Composable
+private fun AppUpdateSection(vm: SettingsViewModel) {
+    val update: UpdateState by AppUpdater.state.collectAsStateWithLifecycle()
+    val status = update.status
+    val context = LocalContext.current
+    Section("APP") {
+        Text(
+            "Installed · Pulse ${installedVersionLabel(update, withCode = true)}",
+            fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = PulseColors.TextPrimary
+        )
+        Spacer(Modifier.height(6.dp))
+        Text(
+            describe(status), fontSize = 11.5.sp, lineHeight = 17.sp,
+            color = if (status is UpdateStatus.Failed) PulseColors.Accent else PulseColors.TextSecondary
+        )
+        val release = when (status) {
+            is UpdateStatus.Available -> status.release
+            is UpdateStatus.NeedsPermission -> status.release
+            is UpdateStatus.Downloading -> status.release
+            is UpdateStatus.Installing -> status.release
+            is UpdateStatus.AwaitingConfirmation -> status.release
+            is UpdateStatus.Failed -> status.release
+            else -> null
+        }
+        release?.notes?.let {
+            Spacer(Modifier.height(6.dp))
+            Text(it, fontSize = 11.sp, lineHeight = 16.sp, color = PulseColors.TextTertiary)
+        }
+        Spacer(Modifier.height(12.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            when (status) {
+                is UpdateStatus.Available -> Chip("INSTALL ${status.release.versionName}", primary = true) { vm.installUpdate(status.release) }
+                is UpdateStatus.NeedsPermission -> Chip("ALLOW INSTALLS", primary = true) {
+                    context.startActivity(AppUpdater.permissionSettingsIntent(context))
+                }
+                is UpdateStatus.AwaitingConfirmation -> Chip("CONFIRM INSTALL", primary = true) { context.startActivity(status.confirm) }
+                is UpdateStatus.Failed -> status.release?.let { r -> Chip("RETRY", primary = true) { vm.installUpdate(r) } }
+                else -> Unit
+            }
+            Chip("CHECK NOW", enabled = !update.busy) { vm.checkForUpdate() }
+            Chip(
+                if (update.autoUpdate) "AUTO-UPDATE ON" else "AUTO-UPDATE OFF",
+                tint = if (update.autoUpdate) PulseColors.TextPrimary else PulseColors.Warning
+            ) { vm.setAutoUpdate(!update.autoUpdate) }
+        }
+        Spacer(Modifier.height(8.dp))
+        Text(
+            "Updates come from your Pulse server (uploaded with pulse-server-cli app upload). With auto-update on, " +
+                "the app installs a newer release as soon as it finds one. Android asks you to confirm the first update; " +
+                "on Android 12 and later, the ones after that install on their own.",
+            fontSize = 11.sp, lineHeight = 16.sp, color = PulseColors.TextTertiary
+        )
+    }
 }
 
 // ---------------------------------------------------------------- account
