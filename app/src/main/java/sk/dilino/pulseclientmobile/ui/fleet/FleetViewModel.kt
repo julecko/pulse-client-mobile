@@ -99,7 +99,7 @@ class FleetViewModel(private val api: PulseApiClient) : ViewModel() {
         }
     }
 
-    fun approve(agentId: Long) = runAction(agentId) { api.approveAgent(agentId).map { } }
+    fun approve(agentId: Long) = runAction(agentId) { api.approveAgent(agentId) }
 
     fun remove(agentId: Long) = runAction(agentId) { api.removeAgent(agentId) }
 

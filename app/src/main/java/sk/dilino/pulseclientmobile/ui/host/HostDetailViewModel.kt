@@ -25,6 +25,8 @@ data class HostDetailUiState(
     val authEvents: List<AuthEventRecord> = emptyList(),
     val error: String? = null,
     val actionInFlight: Boolean = false,
+    /** Removal is permanent, so the button needs a second tap. */
+    val confirmRemove: Boolean = false,
     val tab: HostTab = HostTab.OVERVIEW,
     /** Index into [snapshots] the whole screen is showing; null follows the newest one ("live"). */
     val pinnedIndex: Int? = null,
@@ -99,7 +101,16 @@ class HostDetailViewModel(
 
     fun compareWith(index: Int) = _uiState.update { it.copy(compareIndex = index) }
 
-    fun approve() = runAction { api.approveAgent(agentId).map { } }
+    fun requestRemove(onRemoved: () -> Unit) {
+        if (_uiState.value.confirmRemove) {
+            _uiState.update { it.copy(confirmRemove = false) }
+            remove(onRemoved)
+        } else {
+            _uiState.update { it.copy(confirmRemove = true) }
+        }
+    }
+
+    fun approve() = runAction { api.approveAgent(agentId) }
     fun revoke() = runAction { api.revokeAgent(agentId) }
     fun remove(onRemoved: () -> Unit) = runAction(onDone = onRemoved) { api.removeAgent(agentId) }
 

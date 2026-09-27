@@ -1,6 +1,14 @@
 package sk.dilino.pulseclientmobile.ui.connect
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Spacer
@@ -38,7 +46,8 @@ fun ConnectScreen(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(PaddingValues(horizontal = 28.dp)),
+            .verticalScroll(rememberScrollState())
+            .padding(PaddingValues(horizontal = 28.dp, vertical = 24.dp)),
         verticalArrangement = Arrangement.Center
     ) {
         Text(
@@ -113,6 +122,48 @@ fun ConnectScreen(
                 style = MaterialTheme.typography.bodyMedium,
                 color = PulseColors.Accent
             )
+        }
+        val cert = state.untrustedCert
+        if (cert != null) {
+            Spacer(Modifier.height(14.dp))
+            Column(
+                Modifier
+                    .fillMaxWidth()
+                    .border(1.dp, PulseColors.Warning)
+                    .padding(14.dp)
+            ) {
+                Text("UNTRUSTED CERTIFICATE", fontSize = 10.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = 1.2.sp, color = PulseColors.Warning)
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    "This server's certificate isn't signed by a trusted authority (normal for a self-signed pulse server). " +
+                        "Compare this fingerprint with the one on the server — " +
+                        "openssl x509 -noout -fingerprint -sha256 -in /etc/pulse-server/certs/cert.pem — and only continue if they match.",
+                    fontSize = 12.sp,
+                    lineHeight = 17.sp,
+                    color = PulseColors.TextSecondary
+                )
+                Spacer(Modifier.height(10.dp))
+                Text(cert, fontSize = 11.sp, fontFamily = FontFamily.Monospace, color = PulseColors.TextPrimary)
+                Spacer(Modifier.height(12.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        "TRUST & CONNECT",
+                        fontSize = 10.5.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = 0.8.sp, color = PulseColors.AccentOn,
+                        modifier = Modifier
+                            .background(PulseColors.Accent)
+                            .clickable { viewModel.trustCertificate(onConnected) }
+                            .padding(horizontal = 11.dp, vertical = 8.dp)
+                    )
+                    Text(
+                        "CANCEL",
+                        fontSize = 10.5.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = 0.8.sp, color = PulseColors.TextPrimary,
+                        modifier = Modifier
+                            .border(1.dp, PulseColors.Border)
+                            .clickable(onClick = viewModel::refuseCertificate)
+                            .padding(horizontal = 11.dp, vertical = 8.dp)
+                    )
+                }
+            }
         }
         Spacer(Modifier.height(20.dp))
         Button(

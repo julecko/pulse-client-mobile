@@ -45,10 +45,6 @@ data class AuthEventRecord(
 
 enum class AuthEventKind { SESSION_OPEN, SESSION_CLOSE, AUTH_FAILURE }
 
-/** Mirrors `protocol::ApproveResponse` — returned by `POST /agents/{id}/approve`. */
-@Serializable
-data class ApproveResponse(val token: String)
-
 /** Mirrors `protocol::LoginRequest` — sent to `POST /auth/login`. */
 @Serializable
 data class LoginRequest(val username: String, val password: String)
@@ -112,3 +108,17 @@ data class LinuxInfo(
     @SerialName("load_avg_fifteen") val loadAvgFifteen: Double,
     @SerialName("uptime_secs") val uptimeSecs: Long
 )
+
+/** Mirrors `protocol::PairingStatus` — returned by `GET/PUT /agents/pairing`. */
+@Serializable
+data class PairingStatus(
+    val open: Boolean,
+    /** UTC `YYYY-MM-DD HH:MM:SS` when an open window closes by itself; null if open-ended or closed. */
+    @SerialName("open_until") val openUntil: String? = null,
+    @SerialName("updated_by") val updatedBy: String? = null,
+    @SerialName("updated_at") val updatedAt: String = ""
+)
+
+/** Mirrors `protocol::SetPairingRequest` — sent to `PUT /agents/pairing`. */
+@Serializable
+data class SetPairingRequest(val open: Boolean, val minutes: Int? = null)

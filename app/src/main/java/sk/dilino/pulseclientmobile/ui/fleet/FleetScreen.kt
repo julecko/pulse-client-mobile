@@ -87,7 +87,7 @@ fun FleetScreen(
                 state.agents.isEmpty() && !state.isLoading -> EmptyPlaceholder(
                     icon = Icons.Outlined.Dns,
                     title = "No hosts yet",
-                    message = "Agents that pair with this server will show up here."
+                    message = "Open pairing in Settings, then start the agent on a machine — it will show up here."
                 )
                 else -> LazyColumn(Modifier.fillMaxSize()) {
                     items(state.agents, key = { it.id }) { agent ->

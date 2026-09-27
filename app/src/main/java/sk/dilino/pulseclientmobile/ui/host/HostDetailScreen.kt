@@ -308,7 +308,7 @@ private fun OverviewTab(state: HostDetailUiState, vm: HostDetailViewModel, onBac
             when (agent.lifecycle) {
                 AgentLifecycle.APPROVED -> "No metrics received yet — the agent reports on its own interval."
                 AgentLifecycle.PENDING -> "Approve this agent to start receiving its metrics."
-                AgentLifecycle.REVOKED -> "This agent is revoked and no longer reports."
+                AgentLifecycle.REVOKED -> "This agent is revoked and can't be approved again. Remove it, then run pulse-agentd reset-identity on the host to pair it anew."
             }
         )
     } else {
@@ -372,7 +372,10 @@ private fun OverviewTab(state: HostDetailUiState, vm: HostDetailViewModel, onBac
                 ActionButton("APPROVE", true, state.actionInFlight, vm::approve)
                 ActionButton("REJECT", false, state.actionInFlight) { vm.remove(onBack) }
             }
-            AgentLifecycle.APPROVED -> ActionButton("REVOKE", false, state.actionInFlight, vm::revoke)
+            AgentLifecycle.APPROVED -> {
+                ActionButton("REVOKE", false, state.actionInFlight, vm::revoke)
+                ActionButton(if (state.confirmRemove) "CONFIRM REMOVE" else "REMOVE", state.confirmRemove, state.actionInFlight) { vm.requestRemove(onBack) }
+            }
             AgentLifecycle.REVOKED -> ActionButton("REMOVE", false, state.actionInFlight) { vm.remove(onBack) }
         }
     }

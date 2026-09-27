@@ -11,9 +11,16 @@ private val Context.dataStore by preferencesDataStore(name = "pulse_connection")
 private val SERVER_URL_KEY = stringPreferencesKey("server_base_url")
 private val USERNAME_KEY = stringPreferencesKey("username")
 private val PASSWORD_KEY = stringPreferencesKey("password")
+private val PINNED_CERT_KEY = stringPreferencesKey("pinned_cert_sha256")
 
 /** Everything needed to talk to the server as a logged-in user. */
-data class Connection(val baseUrl: String, val username: String, val password: String)
+data class Connection(
+    val baseUrl: String,
+    val username: String,
+    val password: String,
+    /** SHA-256 of the self-signed server certificate the user chose to trust; null = normal CA verification. */
+    val pinnedCertSha256: String? = null
+)
 
 /**
  * Persists the server address and the user's credentials in the app-private
@@ -27,7 +34,7 @@ class ConnectionStore(private val context: Context) {
         val url = prefs[SERVER_URL_KEY]
         val user = prefs[USERNAME_KEY]
         val pass = prefs[PASSWORD_KEY]
-        if (url != null && user != null && pass != null) Connection(url, user, pass) else null
+        if (url != null && user != null && pass != null) Connection(url, user, pass, prefs[PINNED_CERT_KEY]) else null
     }
 
     suspend fun save(connection: Connection) {
@@ -35,6 +42,7 @@ class ConnectionStore(private val context: Context) {
             it[SERVER_URL_KEY] = connection.baseUrl
             it[USERNAME_KEY] = connection.username
             it[PASSWORD_KEY] = connection.password
+            if (connection.pinnedCertSha256 != null) it[PINNED_CERT_KEY] = connection.pinnedCertSha256 else it.remove(PINNED_CERT_KEY)
         }
     }
 
@@ -43,6 +51,7 @@ class ConnectionStore(private val context: Context) {
             it.remove(SERVER_URL_KEY)
             it.remove(USERNAME_KEY)
             it.remove(PASSWORD_KEY)
+            it.remove(PINNED_CERT_KEY)
         }
     }
 }

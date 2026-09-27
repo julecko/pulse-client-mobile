@@ -67,7 +67,7 @@ fun PulseApp(connectionStore: ConnectionStore) {
         // whole nav graph (fresh NavController, fresh ViewModels) rather than leave
         // screens holding a stale PulseApiClient for the old server.
         key(current) {
-            val api = remember(current) { PulseApiClient(current.baseUrl, current.username, current.password) }
+            val api = remember(current) { PulseApiClient(current.baseUrl, current.username, current.password, current.pinnedCertSha256) }
             CompositionLocalProvider(
                 LocalPulseApi provides api,
                 LocalConnectionStore provides connectionStore
@@ -103,10 +103,11 @@ private fun MainScaffold(current: Connection) {
             }
             composable(ROUTE_SETTINGS) {
                 val connectionStore = LocalConnectionStore.current
+                val api = LocalPulseApi.current
                 val vm: SettingsViewModel = viewModel(
-                    factory = viewModelFactory { initializer { SettingsViewModel(connectionStore, current) } }
+                    factory = viewModelFactory { initializer { SettingsViewModel(api, connectionStore, current) } }
                 )
-                SettingsScreen(viewModel = vm)
+                SettingsScreen(viewModel = vm, onOpenHost = { id -> navController.navigate(hostDetailRoute(id)) })
             }
             composable(ROUTE_HOST_DETAIL) { backStackEntry ->
                 val agentId = backStackEntry.arguments?.getString("agentId")?.toLongOrNull()
