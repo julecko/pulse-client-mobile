@@ -125,7 +125,8 @@ private fun MainScaffold(current: Connection, openAlertsRequest: Int) {
                 state = update,
                 onInstall = { AppUpdater.install(api, it) },
                 onAllowInstalls = { context.startActivity(AppUpdater.permissionSettingsIntent(context)) },
-                onConfirm = { context.startActivity(it) }
+                onConfirm = { context.startActivity(it) },
+                onRestart = { AppUpdater.restart() }
             )
         },
         bottomBar = { PulseBottomBar(navController) }

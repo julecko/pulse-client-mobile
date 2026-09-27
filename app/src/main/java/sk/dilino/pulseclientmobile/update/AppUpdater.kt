@@ -1,6 +1,7 @@
 package sk.dilino.pulseclientmobile.update
 
 import android.app.PendingIntent
+import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageInstaller
@@ -17,6 +18,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import sk.dilino.pulseclientmobile.MainActivity
 import sk.dilino.pulseclientmobile.data.model.AppRelease
 import sk.dilino.pulseclientmobile.data.network.PulseApiClient
 import java.io.File
@@ -38,6 +40,11 @@ sealed interface UpdateStatus {
     data class Installing(val release: AppRelease) : UpdateStatus
     /** Android asks the user to confirm the install; [confirm] shows that prompt again. */
     data class AwaitingConfirmation(val release: AppRelease, val confirm: Intent) : UpdateStatus
+    /**
+     * A newer version is installed, but this process still runs the old code; [AppUpdater.restart]
+     * switches to it. [release] is null when the install finished while this process wasn't watching.
+     */
+    data class Installed(val release: AppRelease?) : UpdateStatus
     data class Failed(val message: String, val release: AppRelease? = null) : UpdateStatus
 }
 
@@ -50,7 +57,8 @@ data class UpdateState(
     /** Something is in progress, so checks and new installs wait. */
     val busy: Boolean
         get() = status is UpdateStatus.Checking || status is UpdateStatus.Downloading ||
-            status is UpdateStatus.Installing || status is UpdateStatus.AwaitingConfirmation
+            status is UpdateStatus.Installing || status is UpdateStatus.AwaitingConfirmation ||
+            status is UpdateStatus.Installed
 }
 
 /**
@@ -61,6 +69,11 @@ data class UpdateState(
  * updates install without one, since this app then installed itself.
  *
  * With auto-update on (the default), a check that finds a newer release installs it right away.
+ *
+ * Android replaces the APK but doesn't always kill the running process, which would keep running the
+ * old code (and offer the same update again). So once the installed version is newer than the one
+ * this process started with, the app restarts itself: right away if it's on screen, else the next
+ * time it comes to the foreground.
  */
 object AppUpdater {
 
@@ -80,6 +93,8 @@ object AppUpdater {
 
     private lateinit var appContext: Context
     @Volatile private var lastCheckMs = 0L
+    /** Whether an activity is started (visible), so a restart won't yank the app up from the background. */
+    @Volatile private var foreground = false
 
     /** Safe to call repeatedly; every entry point (activity, receivers) calls it first. */
     fun init(context: Context) {
@@ -108,6 +123,7 @@ object AppUpdater {
      * minutes. With [autoInstall] (and auto-update on) it goes on to install what it finds.
      */
     fun check(api: PulseApiClient, force: Boolean = false, autoInstall: Boolean = true) {
+        if (markIfUpdated()) return
         val now = System.currentTimeMillis()
         if (_state.value.busy || (!force && now - lastCheckMs < CHECK_INTERVAL_MS)) return
         lastCheckMs = now
@@ -133,6 +149,11 @@ object AppUpdater {
     fun install(api: PulseApiClient, release: AppRelease) {
         val current = _state.value.status
         if (current is UpdateStatus.Downloading || current is UpdateStatus.Installing) return
+        // Already installed (e.g. a second tap after the first install went through): don't reinstall it.
+        if (markIfUpdated(release)) {
+            if (foreground) restart()
+            return
+        }
         if (!canInstallPackages()) {
             setStatus(UpdateStatus.NeedsPermission(release))
             return
@@ -178,6 +199,22 @@ object AppUpdater {
         if (status is UpdateStatus.NeedsPermission && canInstallPackages()) install(api, status.release)
     }
 
+    /** Called from `MainActivity.onStart`/`onStop`. Coming to the foreground on outdated code restarts the app. */
+    fun setForeground(visible: Boolean) {
+        foreground = visible
+        if (visible && markIfUpdated()) restart()
+    }
+
+    /**
+     * Relaunches the app in a fresh process, which loads the newly installed code. Only while the app
+     * is on screen: Android doesn't let a background app start an activity.
+     */
+    fun restart() {
+        val intent = Intent.makeRestartActivityTask(ComponentName(appContext, MainActivity::class.java))
+        appContext.startActivity(intent)
+        Runtime.getRuntime().exit(0)
+    }
+
     /** Opens the system setting that lets this app install updates. */
     fun permissionSettingsIntent(context: Context): Intent {
         val intent = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -198,8 +235,14 @@ object AppUpdater {
     internal fun onInstallFinished(status: Int, message: String?) {
         val release = currentRelease()
         when (status) {
-            // The app is replaced (and this process killed) right after; nothing to show.
-            PackageInstaller.STATUS_SUCCESS -> Unit
+            // Android may or may not kill this process; if it didn't, get onto the new code. If it
+            // did, this is already a fresh process running it.
+            PackageInstaller.STATUS_SUCCESS ->
+                if (markIfUpdated(release)) {
+                    if (foreground) restart()
+                } else {
+                    setStatus(UpdateStatus.Idle)
+                }
             PackageInstaller.STATUS_FAILURE_ABORTED ->
                 setStatus(release?.let { UpdateStatus.Available(it, "Install cancelled") } ?: UpdateStatus.Idle)
             PackageInstaller.STATUS_FAILURE_CONFLICT, PackageInstaller.STATUS_FAILURE_INCOMPATIBLE ->
@@ -211,7 +254,7 @@ object AppUpdater {
                 setStatus(UpdateStatus.Failed("Not enough storage to install the update", release))
             else -> setStatus(UpdateStatus.Failed("Install failed: ${message ?: "status $status"}", release))
         }
-        if (status != PackageInstaller.STATUS_SUCCESS) clearDownloads(appContext)
+        clearDownloads(appContext)
     }
 
     /** Deletes downloaded APKs; called once they're installed or given up on. */
@@ -230,7 +273,22 @@ object AppUpdater {
         is UpdateStatus.Installing -> s.release
         is UpdateStatus.AwaitingConfirmation -> s.release
         is UpdateStatus.Failed -> s.release
+        is UpdateStatus.Installed -> s.release
         else -> null
+    }
+
+    /** The version code installed now, which is newer than [UpdateState.installedVersionCode] after an update. */
+    private fun installedPackageVersionCode(): Long =
+        PackageInfoCompat.getLongVersionCode(installedPackageInfo(appContext))
+
+    /**
+     * True (and the status set to [UpdateStatus.Installed]) if a newer version than this process's is
+     * installed.
+     */
+    private fun markIfUpdated(release: AppRelease? = currentRelease()): Boolean {
+        if (installedPackageVersionCode() <= _state.value.installedVersionCode) return false
+        if (_state.value.status !is UpdateStatus.Installed) setStatus(UpdateStatus.Installed(release))
+        return true
     }
 
     private fun prefs() = appContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)

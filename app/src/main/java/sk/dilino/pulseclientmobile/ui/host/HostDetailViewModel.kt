@@ -10,6 +10,7 @@ import kotlinx.coroutines.launch
 import sk.dilino.pulseclientmobile.data.model.AgentSummary
 import sk.dilino.pulseclientmobile.data.model.AuthEventRecord
 import sk.dilino.pulseclientmobile.data.model.MetricsRecord
+import sk.dilino.pulseclientmobile.data.model.OfflineAlertSetting
 import sk.dilino.pulseclientmobile.data.network.PulseApiClient
 
 private const val POLL_INTERVAL_MS = 10_000L
@@ -23,6 +24,8 @@ data class HostDetailUiState(
     /** Oldest → newest. */
     val snapshots: List<MetricsRecord> = emptyList(),
     val authEvents: List<AuthEventRecord> = emptyList(),
+    /** Null until loaded, or for an agent that isn't approved (only approved agents are watched). */
+    val offlineAlert: OfflineAlertSetting? = null,
     val error: String? = null,
     val actionInFlight: Boolean = false,
     /** Removal is permanent, so the button needs a second tap. */
@@ -67,10 +70,12 @@ class HostDetailViewModel(
         val approved = agent?.lifecycle == sk.dilino.pulseclientmobile.data.model.AgentLifecycle.APPROVED
         val metricsResult = if (approved) api.metrics(agentId, SNAPSHOT_WINDOW) else null
         val eventsResult = if (agent != null) api.authEvents(agentId) else null
+        val offlineResult = if (approved) api.offlineAlert(agentId) else null
 
         val error = agentsResult.exceptionOrNull()?.message
             ?: metricsResult?.exceptionOrNull()?.message
             ?: eventsResult?.exceptionOrNull()?.message
+            ?: offlineResult?.exceptionOrNull()?.message
 
         _uiState.update { s ->
             val newSnapshots = metricsResult?.getOrNull() ?: s.snapshots
@@ -84,6 +89,8 @@ class HostDetailViewModel(
                 agent = agent ?: s.agent,
                 snapshots = newSnapshots,
                 authEvents = eventsResult?.getOrNull() ?: s.authEvents,
+                // Kept while the agent list can't be loaded; dropped once the agent isn't approved.
+                offlineAlert = if (agent == null || approved) offlineResult?.getOrNull() ?: s.offlineAlert else null,
                 pinnedIndex = s.pinnedIndex?.minus(shift)?.coerceAtLeast(0),
                 compareIndex = s.compareIndex?.minus(shift)?.coerceAtLeast(0),
                 error = error
@@ -114,6 +121,9 @@ class HostDetailViewModel(
     fun revoke() = runAction { api.revokeAgent(agentId) }
     fun unrevoke() = runAction { api.unrevokeAgent(agentId) }
     fun remove(onRemoved: () -> Unit) = runAction(onDone = onRemoved) { api.removeAgent(agentId) }
+
+    /** Offline alert after [afterSecs] without metrics; null turns it off. */
+    fun setOfflineAlert(afterSecs: Long?) = runAction { api.setOfflineAlert(agentId, afterSecs).map { } }
 
     private fun runAction(onDone: (() -> Unit)? = null, action: suspend () -> Result<Unit>) {
         viewModelScope.launch {
