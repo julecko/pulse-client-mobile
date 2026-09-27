@@ -70,7 +70,7 @@ fun AlertsScreen(viewModel: AlertsViewModel, onOpenHost: (Long) -> Unit) {
 
         when (state.tab) {
             AlertsTab.ALERTS -> PullToRefreshBox(
-                isRefreshing = false,
+                isRefreshing = state.isRefreshing,
                 onRefresh = viewModel::refresh,
                 modifier = Modifier.fillMaxSize()
             ) {
