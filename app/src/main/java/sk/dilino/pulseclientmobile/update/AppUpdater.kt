@@ -12,6 +12,7 @@ import androidx.core.content.pm.PackageInfoCompat
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -82,6 +83,10 @@ object AppUpdater {
     private const val PREFS = "app_updates"
     private const val PREF_AUTO_UPDATE = "auto_update"
     private const val UPDATES_DIR = "updates"
+    /** Commits of one download before giving up on a transient installer failure (see [isTransientFailure]). */
+    private const val MAX_INSTALL_ATTEMPTS = 3
+    /** Wait before retrying a commit, times the attempt number. */
+    private const val INSTALL_RETRY_DELAY_MS = 3_000L
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val _state = MutableStateFlow(UpdateState())
@@ -93,6 +98,9 @@ object AppUpdater {
 
     private lateinit var appContext: Context
     @Volatile private var lastCheckMs = 0L
+    /** The verified APK being installed and its release, kept so a transient failure can retry it. */
+    @Volatile private var pendingInstall: Pair<File, AppRelease>? = null
+    @Volatile private var installAttempt = 0
     /** Whether an activity is started (visible), so a restart won't yank the app up from the background. */
     @Volatile private var foreground = false
 
@@ -186,10 +194,18 @@ object AppUpdater {
                 return@launch
             }
 
-            setStatus(UpdateStatus.Installing(release))
-            runCatching { commitInstall(apk, release) }.onFailure { e ->
-                setStatus(UpdateStatus.Failed("Couldn't start the install: ${e.message}", release))
-            }
+            pendingInstall = apk to release
+            installAttempt = 1
+            startInstall(apk, release)
+        }
+    }
+
+    private fun startInstall(apk: File, release: AppRelease) {
+        setStatus(UpdateStatus.Installing(release))
+        runCatching { commitInstall(apk, release) }.onFailure { e ->
+            pendingInstall = null
+            clearDownloads(appContext)
+            setStatus(UpdateStatus.Failed("Couldn't start the install: ${e.message}", release))
         }
     }
 
@@ -233,6 +249,22 @@ object AppUpdater {
     }
 
     internal fun onInstallFinished(status: Int, message: String?) {
+        // Retry a transient failure with a fresh session, if this process still has the APK (a fresh
+        // process after a crash doesn't; it reports the failure and the user retries).
+        val pending = pendingInstall
+        if (status != PackageInstaller.STATUS_SUCCESS && isTransientFailure(message) &&
+            pending != null && pending.first.exists() && installAttempt < MAX_INSTALL_ATTEMPTS
+        ) {
+            val attempt = installAttempt++
+            setStatus(UpdateStatus.Installing(pending.second))
+            scope.launch {
+                delay(INSTALL_RETRY_DELAY_MS * attempt)
+                startInstall(pending.first, pending.second)
+            }
+            return
+        }
+        pendingInstall = null
+
         val release = currentRelease()
         when (status) {
             // Android may or may not kill this process; if it didn't, get onto the new code. If it
@@ -256,6 +288,14 @@ object AppUpdater {
         }
         clearDownloads(appContext)
     }
+
+    /**
+     * A failure worth retrying as is: `INSTALL_FAILED_INTERNAL_ERROR`, e.g. "Session files in use",
+     * which some phones (seen on Samsung) report when something, like their own scan of new APKs or a
+     * leftover session, still has the session's files open.
+     */
+    private fun isTransientFailure(message: String?): Boolean =
+        message?.contains("INSTALL_FAILED_INTERNAL_ERROR") == true
 
     /** Deletes downloaded APKs; called once they're installed or given up on. */
     fun clearDownloads(context: Context) {
@@ -327,6 +367,9 @@ object AppUpdater {
 
     private fun commitInstall(apk: File, release: AppRelease) {
         val installer = appContext.packageManager.packageInstaller
+        // Sessions left over from an earlier attempt (e.g. the app was killed mid-install) can still
+        // hold files and block this one; nothing else of this app's is installing, so drop them.
+        installer.mySessions.forEach { info -> runCatching { installer.abandonSession(info.sessionId) } }
         val params = PackageInstaller.SessionParams(PackageInstaller.SessionParams.MODE_FULL_INSTALL).apply {
             setAppPackageName(appContext.packageName)
             setSize(apk.length())
