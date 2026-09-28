@@ -32,8 +32,19 @@ data class AuthEventRecord(
     val ruser: String? = null,
     val rhost: String? = null,
     val tty: String? = null,
-    @SerialName("occurred_at") val occurredAt: String
+    @SerialName("occurred_at") val occurredAt: String,
+    /** Where `rhost` is, if it's a public IP the server's GeoIP database knows (ISO code, e.g. `SK`). */
+    @SerialName("country_code") val countryCode: String? = null,
+    @SerialName("country_name") val countryName: String? = null,
+    val city: String? = null
 ) {
+    /** "Bratislava, Slovakia", falling back to whatever parts the server knows. */
+    val location: String?
+        get() = listOfNotNull(city, countryName ?: countryCode)
+            .filter { it.isNotBlank() }
+            .joinToString(", ")
+            .ifEmpty { null }
+
     val eventKind: AuthEventKind
         get() = when (kind) {
             "session_open" -> AuthEventKind.SESSION_OPEN
