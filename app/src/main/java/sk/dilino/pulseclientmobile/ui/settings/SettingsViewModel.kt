@@ -10,8 +10,10 @@ import sk.dilino.pulseclientmobile.data.Connection
 import sk.dilino.pulseclientmobile.data.ConnectionStore
 import sk.dilino.pulseclientmobile.data.model.AgentSummary
 import sk.dilino.pulseclientmobile.data.model.AppRelease
+import sk.dilino.pulseclientmobile.data.model.GeoAlertSettings
 import sk.dilino.pulseclientmobile.data.model.PairingStatus
 import sk.dilino.pulseclientmobile.data.model.PushDevice
+import sk.dilino.pulseclientmobile.data.model.SetGeoAlertSettings
 import sk.dilino.pulseclientmobile.data.network.PulseApiClient
 import sk.dilino.pulseclientmobile.update.AppUpdater
 
@@ -36,7 +38,11 @@ data class SettingsUiState(
     val pushDevices: List<PushDevice> = emptyList(),
     val pushDevicesLoaded: Boolean = false,
     val pushDevicesError: String? = null,
-    val busyDeviceId: Long? = null
+    val busyDeviceId: Long? = null,
+
+    val geo: GeoAlertSettings? = null,
+    val geoBusy: Boolean = false,
+    val geoError: String? = null
 )
 
 class SettingsViewModel(
@@ -65,6 +71,34 @@ class SettingsViewModel(
                 .onFailure { e -> _uiState.update { it.copy(pairingError = e.message ?: "Couldn't load pairing status") } }
             loadAgents()
             loadPushDevices()
+            loadGeoAlerts()
+        }
+    }
+
+    private suspend fun loadGeoAlerts() {
+        api.geoAlertSettings()
+            .onSuccess { g -> _uiState.update { it.copy(geo = g, geoError = null) } }
+            .onFailure { e -> _uiState.update { it.copy(geoError = e.message ?: "Couldn't load geo alert settings") } }
+    }
+
+    fun allowCountry(code: String) = changeGeo { it.copy(allowedCountries = (it.allowedCountries + code).distinct()) }
+
+    fun disallowCountry(code: String) = changeGeo { it.copy(allowedCountries = it.allowedCountries - code) }
+
+    fun setGeoIncludeFailures(on: Boolean) = changeGeo { it.copy(includeFailures = on) }
+
+    fun setGeoNotify(on: Boolean) = changeGeo { it.copy(notify = on) }
+
+    /** Applies [change] to the current settings and saves them; the server replaces all of them at once. */
+    private fun changeGeo(change: (SetGeoAlertSettings) -> SetGeoAlertSettings) {
+        val current = _uiState.value.geo ?: return
+        if (_uiState.value.geoBusy) return
+        val next = change(SetGeoAlertSettings(current.allowedCountries, current.includeFailures, current.notify))
+        viewModelScope.launch {
+            _uiState.update { it.copy(geoBusy = true, geoError = null) }
+            api.setGeoAlertSettings(next)
+                .onSuccess { g -> _uiState.update { it.copy(geo = g, geoBusy = false) } }
+                .onFailure { e -> _uiState.update { it.copy(geoBusy = false, geoError = e.message ?: "Couldn't save geo alert settings") } }
         }
     }
 

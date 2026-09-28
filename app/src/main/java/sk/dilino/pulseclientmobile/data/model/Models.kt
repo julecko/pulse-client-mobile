@@ -325,3 +325,33 @@ data class AppRelease(
     @SerialName("uploaded_by") val uploadedBy: String? = null,
     @SerialName("created_at") val createdAt: String
 )
+
+/** Mirrors `protocol::GeoAlertSettings` — returned by `GET/PUT /geo-alerts/settings`. */
+@Serializable
+data class GeoAlertSettings(
+    /** ISO codes, e.g. `["SK", "CZ"]`. Empty: geo alerts are off. */
+    @SerialName("allowed_countries") val allowedCountries: List<String> = emptyList(),
+    /** Also alert on failed SSH logins, not just successful ones. */
+    @SerialName("include_failures") val includeFailures: Boolean = false,
+    /** Push geo alerts to every registered device. */
+    val notify: Boolean = true,
+    @SerialName("updated_by") val updatedBy: String? = null,
+    @SerialName("updated_at") val updatedAt: String = "",
+    /** The GeoIP database the server loaded; null: none, so no geo alerts whatever the settings say. */
+    val database: GeoDatabaseInfo? = null
+)
+
+@Serializable
+data class GeoDatabaseInfo(
+    val path: String,
+    @SerialName("database_type") val databaseType: String,
+    @SerialName("built_at") val builtAt: String
+)
+
+/** Mirrors `protocol::SetGeoAlertSettings` — sent to `PUT /geo-alerts/settings`; replaces all of them. */
+@Serializable
+data class SetGeoAlertSettings(
+    @SerialName("allowed_countries") val allowedCountries: List<String>,
+    @SerialName("include_failures") val includeFailures: Boolean,
+    val notify: Boolean
+)

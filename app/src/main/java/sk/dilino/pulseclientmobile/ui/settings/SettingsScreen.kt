@@ -5,6 +5,8 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -16,9 +18,15 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -44,6 +52,7 @@ import sk.dilino.pulseclientmobile.update.UpdateStatus
 import sk.dilino.pulseclientmobile.update.describe
 import sk.dilino.pulseclientmobile.update.installedVersionLabel
 import sk.dilino.pulseclientmobile.util.formatServerDateTime
+import java.util.Locale
 
 @Composable
 fun SettingsScreen(viewModel: SettingsViewModel, onOpenHost: (Long) -> Unit = {}) {
@@ -78,6 +87,8 @@ fun SettingsScreen(viewModel: SettingsViewModel, onOpenHost: (Long) -> Unit = {}
             HostsSection(state, viewModel, onOpenHost)
             Divider()
             NotificationsSection(state, viewModel)
+            Divider()
+            GeoAlertsSection(state, viewModel)
             Divider()
             AppUpdateSection(viewModel)
             Divider()
@@ -328,6 +339,147 @@ private fun PushDeviceRow(device: PushDevice, state: SettingsUiState, vm: Settin
         Chip(if (busy) "…" else "REMOVE", tint = PulseColors.Accent, enabled = !busy) { vm.removePushDevice(device.id) }
     }
     Box(Modifier.fillMaxWidth().height(1.dp).background(PulseColors.Divider))
+}
+
+// ---------------------------------------------------------------- geo alerts
+
+/** Every ISO 3166-1 alpha-2 code Android knows, with its name in the phone's language, sorted by name. */
+private val allCountries: List<Pair<String, String>> by lazy {
+    Locale.getISOCountries()
+        .map { code -> code to countryName(code) }
+        .sortedBy { it.second }
+}
+
+private fun countryName(code: String): String =
+    Locale.Builder().setRegion(code).build().displayCountry.ifEmpty { code }
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun GeoAlertsSection(state: SettingsUiState, vm: SettingsViewModel) {
+    val geo = state.geo
+    Section("GEO ALERTS") {
+        if (geo == null) {
+            Text(state.geoError ?: "Loading…", fontSize = 12.sp, color = if (state.geoError != null) PulseColors.Accent else PulseColors.TextTertiary)
+            return@Section
+        }
+        val on = geo.allowedCountries.isNotEmpty()
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            SeverityMarker(if (on && geo.database != null) Severity.HEALTHY else Severity.WARNING)
+            Spacer(Modifier.width(9.dp))
+            Text(
+                if (on) "ON" else "OFF",
+                fontSize = 16.sp, fontWeight = FontWeight.ExtraBold, color = PulseColors.TextPrimary
+            )
+        }
+        Spacer(Modifier.height(6.dp))
+        Text(
+            "An alert${if (geo.notify) " and a notification" else ""} every time someone logs in over SSH from a country not on this list. " +
+                "Logins from LAN or VPN addresses are never checked. With no countries, geo alerts are off.",
+            fontSize = 11.5.sp, lineHeight = 17.sp, color = PulseColors.TextSecondary
+        )
+        Spacer(Modifier.height(4.dp))
+        Text(
+            geo.database?.let { "GeoIP database · ${it.databaseType}, built ${formatServerDateTime(it.builtAt)}" }
+                ?: "The server has no GeoIP database loaded, so no locations are looked up and no geo alerts are raised. See Geo alerts in the server README.",
+            fontSize = 11.sp, lineHeight = 16.sp,
+            color = if (geo.database == null) PulseColors.Warning else PulseColors.TextTertiary
+        )
+
+        Spacer(Modifier.height(12.dp))
+        Text("ALLOWED COUNTRIES · ${geo.allowedCountries.size}", fontSize = 9.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 1.2.sp, color = PulseColors.TextTertiary)
+        Spacer(Modifier.height(6.dp))
+        if (on) {
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                geo.allowedCountries.forEach { code ->
+                    Chip("${countryName(code).uppercase()} ($code) ✕", enabled = !state.geoBusy) { vm.disallowCountry(code) }
+                }
+            }
+        } else {
+            Text("None — pick one below to turn geo alerts on.", fontSize = 11.5.sp, color = PulseColors.TextTertiary)
+        }
+
+        Spacer(Modifier.height(10.dp))
+        CountryPicker(exclude = geo.allowedCountries, enabled = !state.geoBusy) { vm.allowCountry(it) }
+
+        Spacer(Modifier.height(12.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            Chip(
+                if (geo.includeFailures) "FAILED LOGINS TOO" else "SUCCESSFUL LOGINS ONLY",
+                Modifier.weight(1f),
+                tint = if (geo.includeFailures) PulseColors.Warning else PulseColors.TextPrimary,
+                enabled = !state.geoBusy
+            ) { vm.setGeoIncludeFailures(!geo.includeFailures) }
+            Chip(
+                if (geo.notify) "PUSH ON" else "PUSH OFF",
+                Modifier.weight(1f),
+                tint = if (geo.notify) PulseColors.TextPrimary else PulseColors.Warning,
+                enabled = !state.geoBusy
+            ) { vm.setGeoNotify(!geo.notify) }
+        }
+        Spacer(Modifier.height(8.dp))
+        Text(
+            "Failed logins from abroad are constant on a server open to the internet; they raise at most one alert per IP until you acknowledge it.",
+            fontSize = 11.sp, lineHeight = 16.sp, color = PulseColors.TextTertiary
+        )
+        geo.updatedBy?.let {
+            Spacer(Modifier.height(4.dp))
+            Text("Last changed by $it · ${formatServerDateTime(geo.updatedAt)} UTC", fontSize = 10.sp, color = PulseColors.TextTertiary)
+        }
+        state.geoError?.let {
+            Spacer(Modifier.height(8.dp))
+            Text(it, fontSize = 11.5.sp, color = PulseColors.Accent)
+        }
+    }
+}
+
+/** A search box over [allCountries]; tapping a match calls [onPick] with its ISO code. */
+@Composable
+private fun CountryPicker(exclude: List<String>, enabled: Boolean, onPick: (String) -> Unit) {
+    var query by rememberSaveable { mutableStateOf("") }
+    val fieldColors = OutlinedTextFieldDefaults.colors(
+        focusedTextColor = PulseColors.TextPrimary,
+        unfocusedTextColor = PulseColors.TextPrimary,
+        focusedBorderColor = PulseColors.Accent,
+        unfocusedBorderColor = PulseColors.Border,
+        cursorColor = PulseColors.Accent
+    )
+    OutlinedTextField(
+        value = query,
+        onValueChange = { query = it },
+        modifier = Modifier.fillMaxWidth(),
+        singleLine = true,
+        enabled = enabled,
+        placeholder = { Text("Add a country, e.g. Slovakia or SK") },
+        colors = fieldColors
+    )
+    val q = query.trim()
+    if (q.isEmpty()) return
+    val matches = remember(q, exclude) {
+        allCountries
+            .filter { (code, name) -> code !in exclude && (code.equals(q, ignoreCase = true) || name.contains(q, ignoreCase = true)) }
+            // An exact code match first, so "SK" lists Slovakia before names that merely contain "sk".
+            .sortedByDescending { (code, _) -> code.equals(q, ignoreCase = true) }
+            .take(8)
+    }
+    if (matches.isEmpty()) {
+        Text("No matching country", fontSize = 11.5.sp, color = PulseColors.TextTertiary, modifier = Modifier.padding(vertical = 8.dp))
+        return
+    }
+    matches.forEach { (code, name) ->
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .clickable(enabled = enabled) { onPick(code); query = "" }
+                .padding(vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(name, fontSize = 13.sp, color = PulseColors.TextPrimary, modifier = Modifier.weight(1f))
+            Text(code, fontSize = 11.sp, fontFamily = FontFamily.Monospace, color = PulseColors.TextTertiary)
+            Spacer(Modifier.width(10.dp))
+            Text("+ ALLOW", fontSize = 10.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = 0.8.sp, color = PulseColors.Accent)
+        }
+        Box(Modifier.fillMaxWidth().height(1.dp).background(PulseColors.Divider))
+    }
 }
 
 // ---------------------------------------------------------------- app updates
