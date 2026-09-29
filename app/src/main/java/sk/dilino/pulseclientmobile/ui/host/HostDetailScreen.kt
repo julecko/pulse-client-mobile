@@ -639,7 +639,7 @@ private fun eventTag(kind: AuthEventKind) = when (kind) {
 
 private fun eventDescription(event: AuthEventRecord): String {
     val actor = if (event.ruser != null && event.ruser != event.user) "${event.user} (as ${event.ruser})" else event.user
-    val from = event.rhost?.let { " from $it" } ?: ""
+    val from = event.rhost?.let { host -> " from $host" + (event.location?.let { " ($it)" } ?: "") } ?: ""
     return when (event.eventKind) {
         AuthEventKind.AUTH_FAILURE -> "${event.service}: auth failed for $actor$from"
         AuthEventKind.SESSION_OPEN -> "${event.service}: session opened for $actor$from"

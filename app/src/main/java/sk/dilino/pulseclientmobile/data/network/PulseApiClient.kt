@@ -16,6 +16,7 @@ import sk.dilino.pulseclientmobile.data.model.AlertRecord
 import sk.dilino.pulseclientmobile.data.model.AppRelease
 import sk.dilino.pulseclientmobile.data.model.AlertRule
 import sk.dilino.pulseclientmobile.data.model.AuthEventRecord
+import sk.dilino.pulseclientmobile.data.model.GeoAlertSettings
 import sk.dilino.pulseclientmobile.data.model.LoginRequest
 import sk.dilino.pulseclientmobile.data.model.LoginResponse
 import sk.dilino.pulseclientmobile.data.model.MetricsRecord
@@ -24,6 +25,7 @@ import sk.dilino.pulseclientmobile.data.model.OfflineAlertSetting
 import sk.dilino.pulseclientmobile.data.model.PairingStatus
 import sk.dilino.pulseclientmobile.data.model.PushDevice
 import sk.dilino.pulseclientmobile.data.model.RegisterPushDevice
+import sk.dilino.pulseclientmobile.data.model.SetGeoAlertSettings
 import sk.dilino.pulseclientmobile.data.model.SetOfflineAlert
 import sk.dilino.pulseclientmobile.data.model.SetPairingRequest
 import sk.dilino.pulseclientmobile.data.model.UpdateAlertRule
@@ -248,6 +250,27 @@ class PulseApiClient(
             val body = json.encodeToString(SetOfflineAlert(afterSecs))
             authed("/agents/$agentId/offline-alert", { put(body.toRequestBody(JSON_MEDIA)) }) { response ->
                 json.decodeFromString<OfflineAlertSetting>(response.body?.string().orEmpty())
+            }
+        }
+    }
+
+    // ------------------------------------------------------------ geo alerts
+
+    /** Which countries SSH logins may come from without raising a geo alert. */
+    suspend fun geoAlertSettings(): Result<GeoAlertSettings> = withContext(Dispatchers.IO) {
+        runCatching {
+            authed("/geo-alerts/settings") { response ->
+                json.decodeFromString<GeoAlertSettings>(response.body?.string().orEmpty())
+            }
+        }
+    }
+
+    /** Replaces the geo alert settings; an empty [settings] country list turns geo alerts off. */
+    suspend fun setGeoAlertSettings(settings: SetGeoAlertSettings): Result<GeoAlertSettings> = withContext(Dispatchers.IO) {
+        runCatching {
+            val body = json.encodeToString(settings)
+            authed("/geo-alerts/settings", { put(body.toRequestBody(JSON_MEDIA)) }) { response ->
+                json.decodeFromString<GeoAlertSettings>(response.body?.string().orEmpty())
             }
         }
     }

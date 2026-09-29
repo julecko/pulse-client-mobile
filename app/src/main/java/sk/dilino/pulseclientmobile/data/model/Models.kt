@@ -32,8 +32,19 @@ data class AuthEventRecord(
     val ruser: String? = null,
     val rhost: String? = null,
     val tty: String? = null,
-    @SerialName("occurred_at") val occurredAt: String
+    @SerialName("occurred_at") val occurredAt: String,
+    /** Where `rhost` is, if it's a public IP the server's GeoIP database knows (ISO code, e.g. `SK`). */
+    @SerialName("country_code") val countryCode: String? = null,
+    @SerialName("country_name") val countryName: String? = null,
+    val city: String? = null
 ) {
+    /** "Bratislava, Slovakia", falling back to whatever parts the server knows. */
+    val location: String?
+        get() = listOfNotNull(city, countryName ?: countryCode)
+            .filter { it.isNotBlank() }
+            .joinToString(", ")
+            .ifEmpty { null }
+
     val eventKind: AuthEventKind
         get() = when (kind) {
             "session_open" -> AuthEventKind.SESSION_OPEN
@@ -313,4 +324,34 @@ data class AppRelease(
     val sha256: String,
     @SerialName("uploaded_by") val uploadedBy: String? = null,
     @SerialName("created_at") val createdAt: String
+)
+
+/** Mirrors `protocol::GeoAlertSettings` — returned by `GET/PUT /geo-alerts/settings`. */
+@Serializable
+data class GeoAlertSettings(
+    /** ISO codes, e.g. `["SK", "CZ"]`. Empty: geo alerts are off. */
+    @SerialName("allowed_countries") val allowedCountries: List<String> = emptyList(),
+    /** Also alert on failed SSH logins, not just successful ones. */
+    @SerialName("include_failures") val includeFailures: Boolean = false,
+    /** Push geo alerts to every registered device. */
+    val notify: Boolean = true,
+    @SerialName("updated_by") val updatedBy: String? = null,
+    @SerialName("updated_at") val updatedAt: String = "",
+    /** The GeoIP database the server loaded; null: none, so no geo alerts whatever the settings say. */
+    val database: GeoDatabaseInfo? = null
+)
+
+@Serializable
+data class GeoDatabaseInfo(
+    val path: String,
+    @SerialName("database_type") val databaseType: String,
+    @SerialName("built_at") val builtAt: String
+)
+
+/** Mirrors `protocol::SetGeoAlertSettings` — sent to `PUT /geo-alerts/settings`; replaces all of them. */
+@Serializable
+data class SetGeoAlertSettings(
+    @SerialName("allowed_countries") val allowedCountries: List<String>,
+    @SerialName("include_failures") val includeFailures: Boolean,
+    val notify: Boolean
 )
