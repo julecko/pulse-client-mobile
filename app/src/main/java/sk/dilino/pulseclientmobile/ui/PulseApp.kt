@@ -42,6 +42,7 @@ import com.google.firebase.messaging.FirebaseMessaging
 import kotlinx.coroutines.suspendCancellableCoroutine
 import sk.dilino.pulseclientmobile.data.Connection
 import sk.dilino.pulseclientmobile.data.ConnectionStore
+import sk.dilino.pulseclientmobile.data.HostViewStore
 import sk.dilino.pulseclientmobile.data.network.PulseApiClient
 import sk.dilino.pulseclientmobile.ui.alerts.AlertsScreen
 import sk.dilino.pulseclientmobile.ui.components.UpdateBanner
@@ -162,10 +163,11 @@ private fun MainScaffold(current: Connection, openAlertsRequest: Int) {
             composable(ROUTE_HOST_DETAIL) { backStackEntry ->
                 val agentId = backStackEntry.arguments?.getString("agentId")?.toLongOrNull()
                 val api = LocalPulseApi.current
+                val appContext = LocalContext.current.applicationContext
                 if (agentId != null) {
                     val vm: HostDetailViewModel = viewModel(
                         key = "host-$agentId",
-                        factory = viewModelFactory { initializer { HostDetailViewModel(api, agentId) } }
+                        factory = viewModelFactory { initializer { HostDetailViewModel(api, HostViewStore(appContext), agentId) } }
                     )
                     HostDetailScreen(viewModel = vm, onBack = { navController.popBackStack() })
                 }

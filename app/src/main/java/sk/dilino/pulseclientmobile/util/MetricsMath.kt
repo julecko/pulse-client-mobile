@@ -92,3 +92,33 @@ fun formatSigned(v: Float, suffix: String = ""): String {
         else -> "0.0$suffix"
     }
 }
+
+/** Whether [millis] falls on today's date in the device's time zone. */
+fun isToday(millis: Long): Boolean {
+    val day = SimpleDateFormat("yyyyMMdd", Locale.US)
+    return day.format(Date(millis)) == day.format(Date())
+}
+
+/** "28.09" in the device's time zone. */
+fun formatDay(millis: Long): String = SimpleDateFormat("dd.MM", Locale.US).format(Date(millis))
+
+/** A graph's time-axis label: "14:05" within a day, "28.09 14:05" beyond. */
+fun formatAxisTime(unixSecs: Long, rangeSecs: Long): String {
+    val millis = unixSecs * 1000
+    return if (rangeSecs <= 86400 && isToday(millis)) formatClock(millis) else "${formatDay(millis)} ${formatClock(millis)}"
+}
+
+/** "90s" / "15m" / "6h" / "3d", for spans like a graph's range. */
+fun formatSpan(secs: Long): String = when {
+    secs < 120 -> "${secs}s"
+    secs < 7200 -> "${secs / 60}m"
+    secs < 2 * 86400 -> "${secs / 3600}h"
+    else -> "${secs / 86400}d"
+}
+
+/** Typical seconds between an agent's snapshots (the median gap), or null with fewer than two. */
+fun typicalIntervalSecs(snapshots: List<MetricsRecord>): Long? {
+    val times = snapshots.takeLast(41).mapNotNull { parseServerMillis(it.createdAt) }
+    val gaps = times.zipWithNext { a, b -> (b - a) / 1000 }.filter { it > 0 }.sorted()
+    return gaps.getOrNull(gaps.size / 2)
+}

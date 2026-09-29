@@ -20,6 +20,7 @@ import sk.dilino.pulseclientmobile.data.model.GeoAlertSettings
 import sk.dilino.pulseclientmobile.data.model.LoginRequest
 import sk.dilino.pulseclientmobile.data.model.LoginResponse
 import sk.dilino.pulseclientmobile.data.model.MetricsRecord
+import sk.dilino.pulseclientmobile.data.model.MetricsSeries
 import sk.dilino.pulseclientmobile.data.model.NewAlertRule
 import sk.dilino.pulseclientmobile.data.model.OfflineAlertSetting
 import sk.dilino.pulseclientmobile.data.model.PairingStatus
@@ -160,22 +161,40 @@ class PulseApiClient(
         }
     }
 
-    suspend fun authEvents(agentId: Long): Result<List<AuthEventRecord>> = withContext(Dispatchers.IO) {
-        runCatching {
-            authed("/agents/$agentId/auth-events") { response ->
-                json.decodeFromString<List<AuthEventRecord>>(response.body?.string().orEmpty())
+    /** PAM events, newest first; [beforeId] (the last id of a page) gets the next, older page. */
+    suspend fun authEvents(agentId: Long, limit: Int = 100, beforeId: Long? = null): Result<List<AuthEventRecord>> =
+        withContext(Dispatchers.IO) {
+            runCatching {
+                val query = "?limit=$limit" + (beforeId?.let { "&before_id=$it" } ?: "")
+                authed("/agents/$agentId/auth-events$query") { response ->
+                    json.decodeFromString<List<AuthEventRecord>>(response.body?.string().orEmpty())
+                }
             }
         }
-    }
 
-    /** Most recent snapshots for one agent, returned oldest → newest. */
-    suspend fun metrics(agentId: Long, limit: Int = 96): Result<List<MetricsRecord>> = withContext(Dispatchers.IO) {
-        runCatching {
-            authed("/agents/$agentId/metrics?limit=$limit") { response ->
-                json.decodeFromString<List<MetricsRecord>>(response.body?.string().orEmpty()).asReversed()
+    /**
+     * Most recent snapshots for one agent (at most 1000), returned oldest → newest; with [beforeId], the ones just
+     * before that snapshot, for paging back.
+     */
+    suspend fun metrics(agentId: Long, limit: Int = 96, beforeId: Long? = null): Result<List<MetricsRecord>> =
+        withContext(Dispatchers.IO) {
+            runCatching {
+                val query = "?limit=$limit" + (beforeId?.let { "&before_id=$it" } ?: "")
+                authed("/agents/$agentId/metrics$query") { response ->
+                    json.decodeFromString<List<MetricsRecord>>(response.body?.string().orEmpty()).asReversed()
+                }
             }
         }
-    }
+
+    /** The last [rangeSecs] of an agent's metrics averaged into at most [points] buckets, for graphs. */
+    suspend fun metricsSeries(agentId: Long, rangeSecs: Long, points: Int): Result<MetricsSeries> =
+        withContext(Dispatchers.IO) {
+            runCatching {
+                authed("/agents/$agentId/metrics/series?range_secs=$rangeSecs&points=$points") { response ->
+                    json.decodeFromString<MetricsSeries>(response.body?.string().orEmpty())
+                }
+            }
+        }
 
     /** 204 — the agent's own secret becomes its token; nothing is returned. Revoked agents get 409. */
     suspend fun approveAgent(agentId: Long): Result<Unit> = withContext(Dispatchers.IO) {

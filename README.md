@@ -15,8 +15,10 @@ The app uses the server's user-facing endpoints:
 | `GET /healthz` | Reachability check (unauthenticated) |
 | `POST /auth/login` | Username + password → session bearer token |
 | `GET /agents` | Fleet list |
-| `GET /agents/{id}/metrics?limit=N` | Metric snapshots (CPU, memory, disks, load, uptime) |
-| `GET /agents/{id}/auth-events` | PAM session / auth-failure log |
+| `GET /agents/{id}/metrics?limit=N&before_id=…` | Metric snapshots (CPU, memory, disks, load, uptime), paged back with `before_id` |
+| `GET /agents/{id}/metrics/series?range_secs=…&points=…` | Averaged metrics over a time range, for the GRAPHS tab (server 1.3.0+) |
+| `GET /agents/{id}/auth-events?limit=N&before_id=…` | PAM session / auth-failure log, paged back with `before_id` |
+| `GET` / `PUT /geo-alerts/settings` | Countries SSH logins may come from (Settings → Geo alerts) |
 | `POST /agents/{id}/approve`, `POST /agents/{id}/revoke`, `POST /agents/{id}/unrevoke`, `DELETE /agents/{id}` | Agent lifecycle |
 | `GET` / `PUT /agents/pairing` | Open or close the pairing window |
 | `GET /users/me` | The signed-in user |
@@ -125,13 +127,13 @@ Android Studio writes your SDK path to `local.properties`, which is git-ignored.
 
 ```
 app/src/main/java/sk/dilino/pulseclientmobile/
-├── data/        ConnectionStore (server + credentials), PulseApiClient, JSON models
+├── data/        ConnectionStore (server + credentials), HostViewStore (per-host view settings), PulseApiClient, JSON models
 ├── push/        FCM messaging service, token registration, notification channel
 ├── update/      self-update: check, download, verify, install (PackageInstaller)
 ├── ui/
 │   ├── connect/     first-run server + login
 │   ├── fleet/       host list with live usage bars
-│   ├── host/        host detail: timeline, overview, CPU, auth, snapshots
+│   ├── host/        host detail: timeline, overview, CPU, graphs, auth, snapshots, setup
 │   ├── alerts/      alert feed + alert rule management
 │   ├── settings/    server address, hosts, notification devices, sign out
 │   ├── components/  severity markers, meters, charts
