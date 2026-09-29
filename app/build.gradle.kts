@@ -19,8 +19,8 @@ android {
         targetSdk = 36
         // Bump both for every release uploaded to the server (`pulse-server-cli app upload`):
         // installed apps only update to a higher versionCode.
-        versionCode = 8
-        versionName = "1.2.1"
+        versionCode = 9
+        versionName = "1.3.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

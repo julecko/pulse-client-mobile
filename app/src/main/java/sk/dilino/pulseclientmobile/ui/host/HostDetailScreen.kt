@@ -7,10 +7,14 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -28,7 +32,10 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
@@ -41,10 +48,13 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import sk.dilino.pulseclientmobile.data.HostGraph
+import sk.dilino.pulseclientmobile.data.HostViewPrefs
 import sk.dilino.pulseclientmobile.data.model.AgentLifecycle
 import sk.dilino.pulseclientmobile.data.model.AuthEventKind
 import sk.dilino.pulseclientmobile.data.model.AuthEventRecord
 import sk.dilino.pulseclientmobile.data.model.MetricsRecord
+import sk.dilino.pulseclientmobile.data.model.MetricsSeries
 import sk.dilino.pulseclientmobile.data.model.NetworkInfo
 import sk.dilino.pulseclientmobile.ui.components.EmptyPlaceholder
 import sk.dilino.pulseclientmobile.ui.components.LineChart
@@ -54,6 +64,8 @@ import sk.dilino.pulseclientmobile.ui.components.Severity
 import sk.dilino.pulseclientmobile.ui.components.SeverityMarker
 import sk.dilino.pulseclientmobile.ui.components.Sparkline
 import sk.dilino.pulseclientmobile.ui.components.StatusPill
+import sk.dilino.pulseclientmobile.ui.components.TimeChart
+import sk.dilino.pulseclientmobile.ui.components.TimeSeries
 import sk.dilino.pulseclientmobile.ui.components.color
 import sk.dilino.pulseclientmobile.ui.theme.PulseColors
 import sk.dilino.pulseclientmobile.util.DEFAULT_OFFLINE_AFTER_SECS
@@ -61,6 +73,11 @@ import sk.dilino.pulseclientmobile.util.cpuPercent
 import sk.dilino.pulseclientmobile.util.diskPercent
 import sk.dilino.pulseclientmobile.util.formatBytes
 import sk.dilino.pulseclientmobile.util.formatClock
+import sk.dilino.pulseclientmobile.util.formatAxisTime
+import sk.dilino.pulseclientmobile.util.formatDay
+import sk.dilino.pulseclientmobile.util.formatSpan
+import sk.dilino.pulseclientmobile.util.isToday
+import sk.dilino.pulseclientmobile.util.typicalIntervalSecs
 import sk.dilino.pulseclientmobile.util.formatPercent
 import sk.dilino.pulseclientmobile.util.formatRate
 import sk.dilino.pulseclientmobile.util.formatRelative
@@ -142,8 +159,10 @@ fun HostDetailScreen(
             when (state.tab) {
                 HostTab.OVERVIEW -> OverviewTab(state, viewModel, onBack)
                 HostTab.CPU -> CpuTab(state)
-                HostTab.AUTH -> AuthTab(state)
+                HostTab.GRAPHS -> GraphsTab(state, viewModel)
+                HostTab.AUTH -> AuthTab(state, viewModel)
                 HostTab.SNAPSHOTS -> SnapshotsTab(state, viewModel)
+                HostTab.SETUP -> SetupTab(state, viewModel)
             }
         }
     }
@@ -253,7 +272,7 @@ private fun Timeline(state: HostDetailUiState, vm: HostDetailViewModel) {
         }
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
             val startMs = parseServerMillis(snaps.first().createdAt) ?: lastMs
-            Text("${formatClock(startMs)}", fontSize = 9.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 1.sp, color = PulseColors.TextTertiary)
+            Text(if (isToday(startMs)) formatClock(startMs) else "${formatDay(startMs)} ${formatClock(startMs)}", fontSize = 9.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 1.sp, color = PulseColors.TextTertiary)
             Text("${snaps.size} SNAPSHOTS", fontSize = 9.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 1.sp, color = PulseColors.TextTertiary)
             Text("NOW", fontSize = 9.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 1.sp, color = PulseColors.TextTertiary)
         }
@@ -263,12 +282,19 @@ private fun Timeline(state: HostDetailUiState, vm: HostDetailViewModel) {
 
 @Composable
 private fun TabBar(selected: HostTab, onSelect: (HostTab) -> Unit) {
-    Row(Modifier.fillMaxWidth().background(PulseColors.Background)) {
+    // Six tabs don't fit a phone's width at this size, so the bar scrolls.
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .background(PulseColors.Background)
+            .horizontalScroll(rememberScrollState())
+            .padding(horizontal = 6.dp)
+    ) {
         HostTab.entries.forEach { tab ->
             val active = tab == selected
             Column(
                 modifier = Modifier
-                    .weight(1f)
+                    .width(IntrinsicSize.Max)
                     .clickable { onSelect(tab) },
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
@@ -278,7 +304,7 @@ private fun TabBar(selected: HostTab, onSelect: (HostTab) -> Unit) {
                     fontWeight = FontWeight.ExtraBold,
                     letterSpacing = 1.sp,
                     color = if (active) PulseColors.TextPrimary else PulseColors.TextTertiary,
-                    modifier = Modifier.padding(top = 11.dp, bottom = 9.dp)
+                    modifier = Modifier.padding(start = 12.dp, end = 12.dp, top = 11.dp, bottom = 9.dp)
                 )
                 Box(Modifier.fillMaxWidth().height(2.dp).background(if (active) PulseColors.Accent else Color.Transparent))
             }
@@ -606,11 +632,239 @@ private fun CpuTab(state: HostDetailUiState) {
     }
 }
 
+// ---------------------------------------------------------------- graphs
+
+/** One line of a graph: a value per series point. */
+private class GraphLine(val values: List<Float?>, val color: Color, val dashed: Boolean = false)
+
+/** What a [HostGraph] draws from a [MetricsSeries]. [stats] is the line NOW / AVG / PEAK describe. */
+private class GraphSpec(
+    val title: String,
+    val legend: String,
+    val lines: List<GraphLine>,
+    val stats: GraphLine,
+    /** Top of the scale; null scales to the busiest point. */
+    val fixedMax: Float?,
+    val format: (Float) -> String
+)
+
+private fun percentText(v: Float) = "${"%.1f".format(v)}%"
+
+private fun graphSpec(graph: HostGraph, points: List<sk.dilino.pulseclientmobile.data.model.SeriesPoint>): GraphSpec {
+    fun line(color: Color, dashed: Boolean = false, value: (sk.dilino.pulseclientmobile.data.model.SeriesPoint) -> Float?) =
+        GraphLine(points.map(value), color, dashed)
+    return when (graph) {
+        HostGraph.CPU -> {
+            val avg = line(PulseColors.TextPrimary) { it.cpuPercent }
+            GraphSpec("CPU", "average · peak", listOf(line(PulseColors.Accent, dashed = true) { it.cpuMaxPercent }, avg), avg, 100f, ::percentText)
+        }
+        HostGraph.MEMORY -> line(PulseColors.TextPrimary) { it.memoryPercent }
+            .let { GraphSpec("MEMORY", "used", listOf(it), it, 100f, ::percentText) }
+        HostGraph.SWAP -> line(PulseColors.TextPrimary) { it.swapPercent }
+            .let { GraphSpec("SWAP", "used", listOf(it), it, 100f, ::percentText) }
+        HostGraph.DISK -> line(PulseColors.TextPrimary) { it.diskPercent }
+            .let { GraphSpec("DISK", "fullest filesystem", listOf(it), it, 100f, ::percentText) }
+        HostGraph.LOAD -> {
+            val one = line(PulseColors.TextPrimary) { it.loadOne?.toFloat() }
+            GraphSpec(
+                "LOAD AVERAGE", "1 · 5 · 15 min",
+                listOf(line(PulseColors.TextTertiary, dashed = true) { it.loadFifteen?.toFloat() }, line(PulseColors.TextSecondary) { it.loadFive?.toFloat() }, one),
+                one, null
+            ) { "%.2f".format(it) }
+        }
+        HostGraph.NETWORK -> {
+            val rx = line(PulseColors.Accent) { it.netRxBytesPerSec?.toFloat() }
+            GraphSpec(
+                "NETWORK", "in · out (stats: in)",
+                listOf(line(PulseColors.TextTertiary) { it.netTxBytesPerSec?.toFloat() }, rx),
+                rx, null
+            ) { formatRate(it.toDouble()) }
+        }
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun GraphsTab(state: HostDetailUiState, vm: HostDetailViewModel) {
+    val prefs = state.prefs
+    Column(Modifier.padding(horizontal = 18.dp, vertical = 14.dp)) {
+        Cap("RANGE")
+        Spacer(Modifier.height(8.dp))
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            HostViewPrefs.RANGE_OPTIONS.forEach { (label, secs) ->
+                ActionButton(label, prefs.rangeSecs == secs, false) { vm.updatePrefs { it.copy(rangeSecs = secs) } }
+            }
+        }
+    }
+    Rule()
+
+    val series = state.series
+    val shownGraphs = HostGraph.entries.filter { it in prefs.graphs }
+    when {
+        state.agent?.lifecycle != AgentLifecycle.APPROVED -> NoData("Graphs appear once this agent is approved and reporting.")
+        shownGraphs.isEmpty() -> NoData("No graphs are switched on — pick some on the SETUP tab.")
+        series == null -> NoData(state.seriesError ?: "Loading…")
+        else -> {
+            val stale = series.until - series.since != prefs.rangeSecs
+            Text(
+                state.seriesError ?: if (stale) "Loading the last ${formatSpan(prefs.rangeSecs)}…"
+                else "Last ${formatSpan(series.until - series.since)} · one point per ${formatSpan(series.bucketSecs)} · ${series.points.size} points",
+                fontSize = 10.5.sp,
+                color = if (state.seriesError != null) PulseColors.Warning else PulseColors.TextTertiary,
+                modifier = Modifier.padding(start = 18.dp, end = 18.dp, top = 10.dp)
+            )
+            if (series.points.isEmpty()) {
+                NoData("No snapshots in this range.")
+            } else {
+                // A line breaks where the agent went quiet: more than a couple of its intervals without a point.
+                val interval = typicalIntervalSecs(state.snapshots) ?: 60L
+                val gap = maxOf(series.bucketSecs, interval) * 5 / 2
+                shownGraphs.forEach { graph -> GraphCard(graphSpec(graph, series.points), series, gap) }
+            }
+        }
+    }
+}
+
+@Composable
+private fun GraphCard(spec: GraphSpec, series: MetricsSeries, gapSecs: Long) {
+    val values = spec.stats.values.filterNotNull()
+    val allValues = spec.lines.flatMap { it.values.filterNotNull() }
+    Column(Modifier.padding(horizontal = 18.dp, vertical = 14.dp)) {
+        Row(verticalAlignment = Alignment.Bottom) {
+            Cap(spec.title)
+            Spacer(Modifier.width(8.dp))
+            Text(spec.legend, fontSize = 9.5.sp, color = PulseColors.TextTertiary, modifier = Modifier.weight(1f))
+        }
+        if (allValues.isEmpty()) {
+            Spacer(Modifier.height(8.dp))
+            Text("Not reported in this range.", fontSize = 11.5.sp, color = PulseColors.TextTertiary)
+            return@Column
+        }
+        Spacer(Modifier.height(10.dp))
+        Row {
+            GraphStat("NOW", values.lastOrNull()?.let(spec.format) ?: "—", Modifier.weight(1f))
+            GraphStat("AVG", if (values.isEmpty()) "—" else spec.format(values.average().toFloat()), Modifier.weight(1f))
+            GraphStat("PEAK", spec.format(allValues.max()), Modifier.weight(1f))
+        }
+        Spacer(Modifier.height(10.dp))
+        val peak = allValues.max()
+        val max = spec.fixedMax ?: (peak * 1.15f).takeIf { it > 0f } ?: 1f
+        Text(spec.format(max), fontSize = 9.sp, color = PulseColors.TextTertiary)
+        TimeChart(
+            series = spec.lines.map { l -> TimeSeries(series.points.map { it.at }.zip(l.values), l.color, l.dashed) },
+            since = series.since,
+            until = series.until,
+            gapSecs = gapSecs,
+            max = max,
+            modifier = Modifier.fillMaxWidth().height(96.dp)
+        )
+        Spacer(Modifier.height(5.dp))
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            val range = series.until - series.since
+            Text(formatAxisTime(series.since, range), fontSize = 9.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 1.sp, color = PulseColors.TextTertiary)
+            Text("NOW", fontSize = 9.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 1.sp, color = PulseColors.TextTertiary)
+        }
+    }
+    Rule()
+}
+
+@Composable
+private fun GraphStat(label: String, value: String, modifier: Modifier = Modifier) {
+    Column(modifier) {
+        Text(value, fontSize = 15.sp, fontWeight = FontWeight.ExtraBold, color = PulseColors.TextPrimary, maxLines = 1)
+        Spacer(Modifier.height(3.dp))
+        Text(label, fontSize = 9.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 1.sp, color = PulseColors.TextTertiary)
+    }
+}
+
+// ---------------------------------------------------------------- setup
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun SetupTab(state: HostDetailUiState, vm: HostDetailViewModel) {
+    val prefs = state.prefs
+    Column(Modifier.padding(horizontal = 18.dp, vertical = 14.dp)) {
+        Text(
+            "How this host's screen loads and refreshes. Saved on this phone, for this host only.",
+            fontSize = 11.5.sp, lineHeight = 17.sp, color = PulseColors.TextSecondary
+        )
+
+        SetupHeading("REFRESH EVERY")
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            HostViewPrefs.REFRESH_OPTIONS.forEach { (label, secs) ->
+                ActionButton(label, prefs.refreshSecs == secs, false) { vm.updatePrefs { it.copy(refreshSecs = secs) } }
+            }
+        }
+        Spacer(Modifier.height(8.dp))
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                if (state.lastRefreshMs == 0L) "Not refreshed yet" else "Last refreshed ${java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.US).format(java.util.Date(state.lastRefreshMs))}",
+                fontSize = 11.sp, color = PulseColors.TextTertiary, modifier = Modifier.weight(1f)
+            )
+            ActionButton("REFRESH NOW", false, state.refreshing, vm::load)
+        }
+        Text(
+            "How often the agent itself reports is interval_secs in agent.toml on the host" +
+                (typicalIntervalSecs(state.snapshots)?.let { " (currently about every ${formatSpan(it)})" } ?: "") +
+                "; refreshing faster than that finds nothing new.",
+            fontSize = 11.sp, lineHeight = 16.sp, color = PulseColors.TextTertiary, modifier = Modifier.padding(top = 6.dp)
+        )
+
+        SetupHeading("SNAPSHOTS LOADED")
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            HostViewPrefs.SNAPSHOT_COUNTS.forEach { n ->
+                ActionButton("$n", prefs.snapshotCount == n, false) { vm.updatePrefs { it.copy(snapshotCount = n) } }
+            }
+        }
+        Text(
+            "The newest snapshots for the timeline, CPU history and compare view" +
+                (typicalIntervalSecs(state.snapshots)?.let { " — ${prefs.snapshotCount} cover about ${formatSpan(it * prefs.snapshotCount)}" } ?: "") +
+                ". Each is a full snapshot, so more means more data on every refresh. Page further back on the SNAPSHOTS tab.",
+            fontSize = 11.sp, lineHeight = 16.sp, color = PulseColors.TextTertiary, modifier = Modifier.padding(top = 6.dp)
+        )
+
+        SetupHeading("GRAPH RANGE")
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            HostViewPrefs.RANGE_OPTIONS.forEach { (label, secs) ->
+                ActionButton(label, prefs.rangeSecs == secs, false) { vm.updatePrefs { it.copy(rangeSecs = secs) } }
+            }
+        }
+
+        SetupHeading("GRAPH DETAIL")
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            HostViewPrefs.GRAPH_POINT_OPTIONS.forEach { (label, points) ->
+                ActionButton(label, prefs.graphPoints == points, false) { vm.updatePrefs { it.copy(graphPoints = points) } }
+            }
+        }
+        Text(
+            "Points per graph: the range is averaged into this many (${prefs.graphPoints}, one per ${formatSpan(maxOf(1L, prefs.rangeSecs / prefs.graphPoints))}), so graphs of any range stay light.",
+            fontSize = 11.sp, lineHeight = 16.sp, color = PulseColors.TextTertiary, modifier = Modifier.padding(top = 6.dp)
+        )
+
+        SetupHeading("GRAPHS SHOWN")
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            HostGraph.entries.forEach { g ->
+                ActionButton(g.label, g in prefs.graphs, false) { vm.toggleGraph(g) }
+            }
+        }
+
+        Spacer(Modifier.height(20.dp))
+        ActionButton("RESET TO DEFAULTS", false, false, vm::resetPrefs)
+    }
+}
+
+@Composable
+private fun SetupHeading(text: String) {
+    Spacer(Modifier.height(18.dp))
+    Cap(text)
+    Spacer(Modifier.height(8.dp))
+}
+
 // ---------------------------------------------------------------- auth
 
 @Composable
-private fun AuthTab(state: HostDetailUiState) {
-    Cap("AUTH LOG · LAST 100", Modifier.padding(start = 18.dp, end = 18.dp, top = 14.dp, bottom = 8.dp))
+private fun AuthTab(state: HostDetailUiState, vm: HostDetailViewModel) {
+    Cap("AUTH LOG · ${state.authEvents.size} EVENTS · NEWEST FIRST", Modifier.padding(start = 18.dp, end = 18.dp, top = 14.dp, bottom = 8.dp))
     if (state.authEvents.isEmpty()) {
         NoData("PAM session and auth-failure events forwarded by this agent will appear here.")
         return
@@ -618,7 +872,17 @@ private fun AuthTab(state: HostDetailUiState) {
     state.authEvents.forEach { e ->
         val sev = if (e.eventKind == AuthEventKind.AUTH_FAILURE) Severity.CRITICAL else Severity.HEALTHY
         Row(Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 9.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text(formatServerTime(e.occurredAt), fontSize = 10.5.sp, fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace, color = PulseColors.TextTertiary, modifier = Modifier.width(42.dp))
+            // Older pages reach back days, so anything not from today gets its date too.
+            val atMs = parseServerMillis(e.occurredAt)
+            Column(Modifier.width(42.dp)) {
+                Text(
+                    atMs?.let { formatClock(it) } ?: formatServerTime(e.occurredAt),
+                    fontSize = 10.5.sp, fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace, color = PulseColors.TextTertiary
+                )
+                if (atMs != null && !isToday(atMs)) {
+                    Text(formatDay(atMs), fontSize = 9.sp, fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace, color = PulseColors.TextTertiary)
+                }
+            }
             Text(
                 eventTag(e.eventKind),
                 fontSize = 9.5.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 0.8.sp, color = sev.color(), textAlign = TextAlign.Center,
@@ -628,6 +892,25 @@ private fun AuthTab(state: HostDetailUiState) {
             Text(eventDescription(e), fontSize = 11.5.sp, lineHeight = 15.sp, color = PulseColors.TextPrimary, modifier = Modifier.weight(1f))
         }
         Rule(PulseColors.Divider)
+    }
+    PageFooter(
+        exhausted = state.authExhausted,
+        loading = state.loadingOlderAuth,
+        endText = "That's the oldest event the server still keeps (see auth_events retention).",
+        buttonText = "LOAD 100 OLDER",
+        onLoad = vm::loadOlderAuth
+    )
+}
+
+/** "Load older" under a paged list, or a note that there's nothing older. */
+@Composable
+private fun PageFooter(exhausted: Boolean, loading: Boolean, endText: String, buttonText: String, onLoad: () -> Unit) {
+    Column(Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 14.dp)) {
+        if (exhausted) {
+            Text(endText, fontSize = 11.sp, lineHeight = 16.sp, color = PulseColors.TextTertiary)
+        } else {
+            ActionButton(buttonText, false, loading, onLoad)
+        }
     }
 }
 
@@ -681,6 +964,8 @@ private fun SnapshotsTab(state: HostDetailUiState, vm: HostDetailViewModel) {
     DiffRow("MEMORY", ra.memPercent, rb.memPercent, "%")
     DiffRow("DISK", ra.diskPercent, rb.diskPercent, "%")
     DiffRow("LOAD 1M", ra.metrics.linux?.loadAvgOne?.toFloat(), rb.metrics.linux?.loadAvgOne?.toFloat(), "")
+    DiffRow("LOAD 5M", ra.metrics.linux?.loadAvgFive?.toFloat(), rb.metrics.linux?.loadAvgFive?.toFloat(), "")
+    DiffRow("LOAD 15M", ra.metrics.linux?.loadAvgFifteen?.toFloat(), rb.metrics.linux?.loadAvgFifteen?.toFloat(), "")
     DiffRow("NET IN Mbit/s", ra.netInMbps, rb.netInMbps, "")
     DiffRow("NET OUT Mbit/s", ra.netOutMbps, rb.netOutMbps, "")
     DiffRow(
@@ -690,8 +975,14 @@ private fun SnapshotsTab(state: HostDetailUiState, vm: HostDetailViewModel) {
         "%"
     )
 
-    Cap("SNAPSHOT HISTORY", Modifier.padding(start = 18.dp, end = 18.dp, top = 16.dp, bottom = 8.dp))
-    for (i in snaps.indices.reversed()) {
+    // Rows are built all at once, so show them in steps rather than all loaded snapshots.
+    var visible by rememberSaveable { mutableIntStateOf(HISTORY_STEP) }
+    val shownRows = visible.coerceAtMost(snaps.size)
+    Cap(
+        "SNAPSHOT HISTORY · $shownRows OF ${snaps.size} LOADED",
+        Modifier.padding(start = 18.dp, end = 18.dp, top = 16.dp, bottom = 8.dp)
+    )
+    for (i in snaps.indices.reversed().take(shownRows)) {
         val s = snaps[i]
         val sev = s.severity
         val marks = when (i) { a -> PulseColors.TextPrimary; b -> PulseColors.Accent; else -> Color.Transparent }
@@ -722,7 +1013,25 @@ private fun SnapshotsTab(state: HostDetailUiState, vm: HostDetailViewModel) {
         }
         Rule(PulseColors.Divider)
     }
+    if (shownRows < snaps.size) {
+        Column(Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 14.dp)) {
+            ActionButton("SHOW ${minOf(HISTORY_STEP, snaps.size - shownRows)} MORE", false, false) { visible += HISTORY_STEP }
+        }
+    } else {
+        PageFooter(
+            exhausted = state.snapshotsExhausted,
+            loading = state.loadingOlderSnapshots,
+            endText = "That's the oldest snapshot the server still keeps (see metrics retention).",
+            buttonText = "LOAD OLDER FROM SERVER"
+        ) {
+            vm.loadOlderSnapshots()
+            visible += HISTORY_STEP
+        }
+    }
 }
+
+/** Snapshot history rows added per "show more". */
+private const val HISTORY_STEP = 50
 
 @Composable
 private fun SnapCell(title: String, clock: String, rel: String, titleColor: Color, modifier: Modifier) {

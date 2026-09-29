@@ -355,3 +355,35 @@ data class SetGeoAlertSettings(
     @SerialName("include_failures") val includeFailures: Boolean,
     val notify: Boolean
 )
+
+/**
+ * Mirrors `protocol::MetricsSeries` — returned by `GET /agents/{id}/metrics/series`: an agent's metrics over a
+ * time range averaged into equal buckets, for graphs of long ranges without downloading every snapshot.
+ */
+@Serializable
+data class MetricsSeries(
+    /** Unix seconds; the range is `[since, until)`. */
+    val since: Long,
+    val until: Long,
+    @SerialName("bucket_secs") val bucketSecs: Long,
+    /** Oldest first; buckets without snapshots are left out, so a gap is a time the agent wasn't reporting. */
+    val points: List<SeriesPoint> = emptyList()
+)
+
+/** Mirrors `protocol::SeriesPoint` — averages over one bucket; null when no snapshot in it reported the value. */
+@Serializable
+data class SeriesPoint(
+    /** Unix seconds, start of the bucket. */
+    val at: Long,
+    val samples: Int = 0,
+    @SerialName("cpu_percent") val cpuPercent: Float? = null,
+    @SerialName("cpu_max_percent") val cpuMaxPercent: Float? = null,
+    @SerialName("memory_percent") val memoryPercent: Float? = null,
+    @SerialName("swap_percent") val swapPercent: Float? = null,
+    @SerialName("disk_percent") val diskPercent: Float? = null,
+    @SerialName("load_one") val loadOne: Double? = null,
+    @SerialName("load_five") val loadFive: Double? = null,
+    @SerialName("load_fifteen") val loadFifteen: Double? = null,
+    @SerialName("net_rx_bytes_per_sec") val netRxBytesPerSec: Double? = null,
+    @SerialName("net_tx_bytes_per_sec") val netTxBytesPerSec: Double? = null
+)
